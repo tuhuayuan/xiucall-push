@@ -1,0 +1,86 @@
+var config = {};
+module.exports = config;
+config.profile = process.env.APP_PROFILE ? process.env.APP_PROFILE : 'development';
+
+if (config.profile === 'development') {
+    // Auth config
+    config.auth = {};
+    config.auth.key = 'MjNW3%Qz~lPxOG:gL,^RcF?Xf)EqS_{h[J<t!4=8';
+
+    // Web server config
+    config.web = {};
+    config.web.port = 3001; // WebPush端口
+
+    // Redis sentinels config
+    config.sentinel = {};
+    config.sentinel.host = '172.17.4.101';
+    config.sentinel.port = 31557;
+    config.sentinel.name = 'mymaster';
+    config.slave = {}
+    config.slave.host = '172.17.4.101';
+    config.slave.port = 32428;
+
+    // mongo
+    config.mongo = {};
+    config.mongo.url = 'mongodb://172.17.4.101:30728/messages';
+    // config.mongo.url = 'mongodb://192.168.0.103:27017,192.168.0.103:27018,192.168.0.103:27019/messages?replicaSet=xiucall-mongo';
+
+    // Pushing config
+    config.push = {};
+    // Collection size in byte  (In development environment we set a small size for test FIFO).
+    // The message body used in test case is 130 byte, if you change either message or queue size,
+    // you must modify the test case your self.
+    config.push.queue_size = 2048;
+
+    // SocketIO config
+    config.socketio = {};
+    config.socketio.port = 3000;
+
+    // test configs
+    config.test = {};
+    config.test.socketio_url = 'http://localhost:3000';
+    config.test.web_url = 'http://localhost:3001/push';
+
+    // logger level
+    config.logger = {};
+    config.logger.level = 'debug';
+
+} else if (config.profile === 'production') {
+    // Auth config
+    config.auth = {};
+    config.auth.key = 'MjNW3%Qz~lPxOG:gL,^RcF?Xf)EqS_{h[J<t!4=8';
+
+    // Web server config
+    config.web = {};
+    config.web.port = 3001; // WebPush端口
+
+    // Redis sentinels config
+    config.sentinel = {};
+    config.sentinel.host = 'redis-sentinel';
+    config.sentinel.port = 26379;
+    config.sentinel.name = 'mymaster';
+    config.slave = {}
+    config.slave.host = 'redis';
+    config.slave.port = 6379;
+
+    // mongo
+    config.mongo = {};
+    config.mongo.url = 'mongodb://172.17.4.101:31372,172.17.4.201:31443/messages?replicaSet=xiucall-mongo';
+
+    // Pushing config
+    config.push = {};
+    config.push.queue_size = 1024 * 1024; // 1Mi for xiucall production environment.
+
+    // SocketIO config
+    config.socketio = {};
+    config.socketio.port = 3000;
+
+    // test configs
+    config.test = {};
+    config.test.socketio_url = 'http://localhost:3000';
+    config.test.web_url = 'http://localhost:3001/push';
+
+    // logger level
+    config.logger = {};
+    config.logger.level = 'error';
+}
