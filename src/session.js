@@ -1,9 +1,9 @@
 import EventEmitter from 'events';
 
 /**
- * Healthy check for kubernetes cluster
+ * Session manager for distributed client
  */
-class Health extends EventEmitter {
+class Session extends EventEmitter {
   constructor(opts) {
     super();
   }

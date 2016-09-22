@@ -23,12 +23,12 @@ setInterval(() => {
   let mem = process.memoryUsage();
   console.log('Process: heapTotal ' + format(mem.heapTotal) + ' heapUsed ' + format(mem.heapUsed) + ' rss ' + format(mem.rss));
 
-}, 50000);
+}, 5000);
 
 co(function*() {
   // MongoDB server
   let mongodb =
-    yield MongoClient.connect(config.mongo.url);
+    yield MongoClient.connect(config.mongo.url); 
   logger.info('MongoDB connected');
 
   // Redis server
