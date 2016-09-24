@@ -14,11 +14,12 @@
   },
   "devDependencies": {
     "babel-cli": "^6.14.0",
-    "babel-preset-latest": "^6.14.0",
     "babel-polyfill": "^6.13.0",
+    "babel-preset-latest": "^6.14.0",
     "babel-register": "^6.14.0",
-    "should": "^11.1.0",
+    "co": "^4.6.0",
     "mocha": "^3.0.2",
+    "should": "^11.1.0",
     "socket.io-client": "^1.4.0"
   },
   "scripts": {},

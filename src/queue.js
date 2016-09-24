@@ -4,7 +4,9 @@ import Redis from 'ioredis';
 import { MongoClient } from 'mongodb';
 import { debug, error, info, config } from './index.js';
 
-
+/**
+ * 
+ */
 class Broker extends EventEmitter {
 
   /**
@@ -24,8 +26,7 @@ class Broker extends EventEmitter {
     }, inner));
     this.redisSub = new Redis(o.redis.sub.host, o.redis.sub.port, inner);
     this.mongoClient = new MongoClient();
-    // end(or wait) -> connecting -> connect -> end
-    this.status = Broker.status.wait;
+    this._setStatus(Broker.status.wait);
   }
 
   /**
@@ -33,7 +34,7 @@ class Broker extends EventEmitter {
    * 
    * @private
    */
-  setStatus(status, args) {
+  _setStatus(status, args) {
     this.status = status;
 
     process.nextTick(() => {
@@ -42,14 +43,19 @@ class Broker extends EventEmitter {
   }
 
   /**
+   * Do broker connect.
    * 
+   * Returns: 
+   * If success return Promise.resolve(this), or return Promise.reject(Error(`reason`));
    * @public
    */
   async connect() {
-    if (this.status === Broker.status.connecting || this.status === Broker.status.connect) {
-      throw new Error('Broker status error.');
+    if (this.status === Broker.status.connecting ||
+      this.status === Broker.status.connect ||
+      this.status === Broker.status.closing) {
+      throw new Error(`Broker status error. ${this.status}`);
     }
-    this.setStatus(Broker.status.connecting);
+    this._setStatus(Broker.status.connecting);
 
     // The ioredis do not complain the sentinel timeout between conncet -> ready.
     let sentinelPromise = new Promise((fulfill, reject) => {
@@ -72,19 +78,24 @@ class Broker extends EventEmitter {
     ]).catch(err => {
       throw new Error(`Broker connect failed, err: ${err}.`);
     });
-
-    this.setStatus(Broker.status.connect);
+    this._setStatus(Broker.status.connect);
+    return this;
   }
 
   /**
    * Close broker release all resource.
    * 
+   * Returns:
+   * If success return Promise.resolve(), or Promise.reject(Error(`$reason`))
    * @public
    */
   async close() {
-    if (this.status === Broker.status.end || this.status == Broker.status.wait) {
+    if (this.status === Broker.status.end ||
+      this.status == Broker.status.wait ||
+      this.status == Broker.status.closing) {
       throw new Error(`Close failed. error status ${this.status}`);
     }
+    this._setStatus(Broker.status.closing);
     // BUG: After ioredis quit promise resolved, status still ready.
     let redisQuit = function(client) {
       return new Promise((fulfill, reject) => {
@@ -101,7 +112,7 @@ class Broker extends EventEmitter {
     ]).catch(err => {
       debug(`Close broker err: ${err}`);
     });
-    this.setStatus(Broker.status.end);
+    this._setStatus(Broker.status.end);
   }
 
   /**
@@ -110,6 +121,8 @@ class Broker extends EventEmitter {
    * opts.mode 'pub'(default) || 'sub'
    * opts.autoCreate true || false (default)
    * 
+   * Return:
+   * If success return Promise.resolve(Queue), or Promise.reject(Error)
    * @public
    */
   async get(id, opts) {
@@ -126,10 +139,15 @@ class Broker extends EventEmitter {
   }
 }
 
+/**
+ * Broker status.
+ * (end || wait) -> connecting -> connect -> closing -> end.
+ */
 Broker.status = {
   wait: 'wait',
   connecting: 'connecting',
   connect: 'connect',
+  closing: 'closing',
   end: 'end'
 };
 
@@ -154,7 +172,7 @@ Broker.defaultConfigs = {
   },
   mongo: 'mongodb://localhost:27017/messages',
   queue: {
-    size: 1024 * 1024 * 2
+    size: 1024 * 1024 * 2 // size in byte
   }
 };
 
@@ -168,12 +186,13 @@ class Queue extends EventEmitter {
    */
   constructor(opts) {
     super();
-    this.cappedSize = opts.cappedSize || 1024 * 1024 * 2;
+    this.cappedSize = opts.cappedSize;
     this.authid = opts._authid;
     this.messageChannel = `mch_${this.authid}`;
     this.mode = opts.mode || 'pub';
     this.autoCreate = opts.autoCreate || false;
     this.broker = opts._broker;
+    this._setStatus(Queue.status.connecting);
   }
 
   /**
@@ -181,7 +200,10 @@ class Queue extends EventEmitter {
    * 
    * @private
    */
-  async build() {
+  async _build() {
+    if (this.status !== Queue.status.connecting) {
+      throw new Error(`Build on error status ${this.status}`);
+    }
     // Using mongodb capped collection for queue message storage.
     let mongo = this.broker.mongo;
     this.store = await new Promise((fulfill, reject) => {
@@ -190,13 +212,13 @@ class Queue extends EventEmitter {
           mongo.createCollection(this.authid, {
             capped: true,
             size: this.cappedSize
-          }).then(coll => {
-            fulfill(coll);
+          }).then(col => {
+            fulfill(col);
           }).catch(err => {
             reject(new Error(`Queue ${this.authid} create failed. err ${err}`));
           });
         } else if (!err) {
-          fulfill(coll);
+          fulfill(col);
         } else {
           reject(new Error(`Queue ${this.authid} not exist.`));
         }
@@ -210,14 +232,22 @@ class Queue extends EventEmitter {
 
     // Clone a redis connect for Subscriber.
     if (this.mode === 'sub') {
-      this.sub = await this.broker.redisSub.duplicate()
-        .connect()
-        .catch(err => {
-          throw new Error(`Subscriber ${this.authid} connect failed err: ${err}`);
-        });
-      this.sub.on('message', this._subscribeHandler);
+      this.sub = this.broker.redisSub.duplicate();
+      await this.sub.connect().catch(err => {
+        throw new Error(`Subscriber ${this.authid} connect failed err: ${err}`);
+      });
+      this.sub.on('message', (channel, message) => {
+        if (channel === this.messageChannel && this.status === Queue.status.peeking) {
+          this._peekingFulfill(message);
+        }
+      });
       await this.sub.subscribe(this.messageChannel);
     }
+    // Die on broker end.
+    this.broker.once('end', () => {
+      this.close();
+    });
+    this._setStatus(Queue.status.ready);
   }
 
   /**
@@ -234,17 +264,24 @@ class Queue extends EventEmitter {
    * @public
    */
   async push(obj) {
+    if (this.status !== Queue.status.ready && this.status !== Queue.status.peeking) {
+      throw new Error(`Push on error status ${this.status}`);
+    }
     if (!_.isPlainObject(obj)) {
       throw new Error('Error push object type.');
     }
     await this.store.insertOne({
       payload: obj,
-      acked: false
+      acked: false,
+      lastDate: new Date()
     }).catch(err => {
       throw new Error(`Push to queue err ${err}`);
     });
-    await this.pub.publish(this.messageChannel, {});
-    return true;
+    let result = await this.pub.publish(this.messageChannel, {});
+    if (result > 0) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -254,18 +291,81 @@ class Queue extends EventEmitter {
    * @public
    */
   async peek() {
-
+    if (this.status !== 'ready') {
+      throw new Error(`Peek on error queue status ${this.status}`);
+    }
+    if (this.mode !== 'sub') {
+      throw new Error(`Can't peek on mode ${this.mode}`);
+    }
+    this._setStatus(Queue.status.peeking);
+    // Get message direct from store or wait message incoming notify.
+    while (true) {
+      let signal = new Promise((fulfill, reject) => {
+        // signal hook.
+        this._peekingFulfill = fulfill;
+        this._peekingReject = reject;
+      }).catch(err => {
+        throw new Error(`Peeking canceled err: ${err}`);
+      });
+      let message = await this.store.findOne({ acked: false });
+      if (message) {
+        this._setStatus(Queue.status.ready);
+        return message;
+      } else {
+        await signal;
+      }
+    }
   }
 
-  async commit() {}
+  /**
+   * Remove a message from the head of the queue.
+   * 
+   * Return true: message commited, false: no change
+   * @public
+   */
+  async commit() {
+    if (this.status !== Queue.status.ready && this.status !== Queue.status.peeking) {
+      throw new Error(`Commit on error status ${this.status}`);
+    }
+    if (this.mode !== 'sub') {
+      throw new Error(`Can't peek on mode ${this.mode}`);
+    }
+    let result = await this.store.findOneAndUpdate({
+      acked: false
+    }, {
+      $set: {
+        acked: true,
+        lastDate: new Date()
+      }
+    }).catch(err => {
+      throw new Error(`Commit error: ${err}`);
+    });
+
+    if (result.ok === 1) {
+      return true;
+    }
+    return false;
+  }
 
   /**
    * Close queue and release subscriber resource.
    * 
+   * Return Promise.resolve()
    * @public
    */
   async close() {
+    if (this.status === Queue.status.end || this.status === Queue.status.closing) {
+      throw new Error('Queue is closing or closed.');
+    }
+    if (this.status === Queue.status.peeking) {
+      this._peekingReject('User close.');
+    }
+    this._setStatus(Queue.status.closing);
 
+    if (this.mode === 'sub') {
+      await this.sub.quit();
+    }
+    this._setStatus(Queue.status.end);
   }
 
   /**
@@ -279,19 +379,6 @@ class Queue extends EventEmitter {
       this.emit(status, args);
     });
   }
-
-  /**
-   * Handle subscribed message.
-   * 
-   * `channel`  Redis pub/sub channel.
-   * `message`  options of channel.
-   * @private
-   */
-  _subscribeHandler(channel, message) {
-    if (channel !== this.messageChannel) {
-      return;
-    }
-  }
 }
 
 /**
@@ -302,18 +389,21 @@ class Queue extends EventEmitter {
 Queue.create = async function(id, broker, opts) {
   opts = _.assign(opts, { _authid: id, _broker: broker });
   let q = new Queue(opts);
-  await q.build().catch((err) => {
-    error(`Queue ${id} create failed err: ${err}`);
+  await q._build().catch((err) => {
+    throw new Error(`Queue ${id} create failed err: ${err}`);
   });
   return q;
 };
 
 /**
- * status: wait -> ready -> end || kicked 
- * Watch out !! the queue instance cannot reuse.
+ * status: connecting -> (ready <-> peeking) －> closing -> end 
  */
 Queue.status = {
-
+  connecting: 'connecting',
+  ready: 'ready',
+  peeking: 'peeking',
+  closing: 'closing',
+  end: 'end'
 };
 
 export {

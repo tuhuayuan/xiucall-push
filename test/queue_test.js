@@ -2,6 +2,8 @@ import 'babel-polyfill';
 import assert from 'assert';
 import should from 'should';
 import crypto from 'crypto';
+import co from 'co';
+import _ from 'lodash';
 import { config, logger, debug, info, error } from '../lib/index.js';
 import { Broker } from '../lib/queue.js';
 
@@ -92,17 +94,10 @@ describe('Broker exception tests.', function() {
 describe('Queue build tests.', function() {
   beforeEach(function(done) {
     this.broker = new Broker();
-    this.broker.connect().then(function(val) {
-      done(val);
-    }).catch(function(err) {
-      done(err);
-    });
-  });
-  afterEach(function(done) {
-    should.exist(this.broker);
-    this.broker.close().then(function(val) {
+    this.broker.connect().then(val => {
+      should.exist(val);
       done();
-    }).catch(function(err) {
+    }).catch(err => {
       done(err);
     });
   });
@@ -127,10 +122,11 @@ describe('Queue build tests.', function() {
       val.push({
         name: 'tuhuayuan',
         attrs: {
-          password: '123',
+          password: 'password',
           roles: ['admin', 'user']
         }
       }).then(val => {
+        (val).should.be.false();
         done();
       }).catch(err => {
         done(err);
@@ -138,5 +134,267 @@ describe('Queue build tests.', function() {
     }).catch(function(err) {
       done(err);
     });
+  });
+  it('Test queue create->push->peek.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: "Test queue create->push->peek."
+    };
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(function(val) {
+      val.push(message).then(res => {
+        (res).should.be.true();
+        return val.peek();
+      }).then(res => {
+        (res).should.be.an.instanceOf(Object).and.have.property('payload');
+        (res.payload).should.deepEqual(message);
+        done();
+      }).catch(err => {
+        done(err);
+      });
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create->peek->push.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create->peek->push.'
+    };
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(function(val) {
+      process.nextTick(() => {
+        val.push(message).then(res => {
+          (res).should.be.true();
+        }).catch(err => {
+          done(err);
+        });
+      });
+      return val.peek();
+    }).then(res => {
+      (res).should.be.an.instanceOf(Object).and.have.property('payload');
+      (res.payload).should.deepEqual(message);
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> push -> peek -> commit.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create -> push -> peek -> commit'
+    };
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(function(val) {
+      queue = val;
+      return queue.push(message);
+    }).then(res => {
+      return queue.peek();
+    }).then(res => {
+      return queue.commit();
+    }).then(res => {
+      (res).should.be.true();
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> peek -> push -> commit.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create -> peek -> push -> commit'
+    };
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      process.nextTick(() => {
+        queue.push(message).catch(err => {
+          done(err);
+        });
+      });
+      return queue.peek();
+    }).then(res => {
+      return queue.commit();
+    }).then(res => {
+      (res).should.be.true();
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> close.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'pub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      return queue.close();
+    }).then(() => {
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> peeking -> close.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      process.nextTick(() => {
+        queue.close().catch(err => {
+          done(err);
+        });
+      });
+      queue.peek().catch(err => {
+        should.exist(err);
+        done();
+      });
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> peeking -> Broker::close -> close.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      process.nextTick(() => {
+        this.broker.close().catch(err => {
+          done(err);
+        });
+      });
+      queue.peek().catch(err => {
+        done();
+      });
+    }).catch(err => {
+      done(err);
+    });
+  });
+  it('Test queue create -> push -> close -> get -> peeking -> commit.', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create -> push -> close -> get -> peeking -> commit.'
+    };
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'pub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      return queue.push(message);
+    }).then(val => {
+      return queue.close();
+    }).then(val => {
+      return this.broker.get(randomID, {
+        mode: 'sub',
+        autoCreate: false
+      });
+    }).then(val => {
+      queue = val;
+      return queue.peek();
+    }).then(val => {
+      (val).should.be.an.instanceOf(Object).and.have.property('payload');
+      (val.payload).should.deepEqual(message);
+      return queue.commit();
+    }).then(val => {
+      (val).should.be.true();
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+});
+
+describe('Queue message sequence.', function() {
+  beforeEach(function(done) {
+    this.broker = new Broker();
+    let randomID = crypto.randomBytes(6).toString('hex');
+    this.messages = new Array(101);
+    for (let i = 1; i <= 100; i++) {
+      this.messages[i] = {
+        index: i,
+        padding: 'arithmetic sequence 1 to 100'
+      };
+    }
+    this.broker.connect().then(val => {
+      return this.broker.get(randomID, {
+        mode: 'sub',
+        autoCreate: true
+      });
+    }).then(val => {
+      this.queue = val;
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+  afterEach(function(done) {
+    let sum = 0;
+    let count = 0;
+    let queue = this.queue;
+    co(function*() {
+      for (let i = 1; i <= 100; i++) {
+        let message = yield queue.peek();
+        count++;
+        sum += message.payload.index;
+        if (count == 100) {
+          (sum).should.equal(5050);
+          done();
+        }
+        yield queue.commit();
+      }
+    }).catch(err => {
+      done(err);
+    })
+  });
+  it('Test messages from 1 to 100 arithmetic sequence.', function(done) {
+    let messages = this.messages;
+    let queue = this.queue;
+    co(function*() {
+      for (let msg of messages) {
+        if (!msg) {
+          continue;
+        }
+        yield queue.push(msg);
+      }
+    }).catch(err => {
+      done(err);
+    })
+    done();
+  });
+  it('Test concurrent messages from 1 to 100 arithmetic sequence.', function(done) {
+    let messages = this.messages;
+    let queue = this.queue;
+    let allPush = new Array();
+    co(function*() {
+      for (let msg of messages) {
+        if (!msg) {
+          continue;
+        }
+        allPush.push(queue.push(msg));
+      }
+      yield Promise.all(allPush);
+      done();
+    }).catch(err => {
+      done(err);
+    })
   });
 });

@@ -3,8 +3,8 @@ LIB = $(SRC:src/%.js=lib/%.js)
 TESTS = $(shell ls -S `find test -type f -name "*.js" -print`)
 
 # unittest configs
-MOCHA_OPTS = --compilers js:babel-register
-TIMEOUT = 15000
+MOCHA_OPTS = --compilers js:babel-register -s 100
+TIMEOUT = 5000
 REPORTER = spec
 
 install:
