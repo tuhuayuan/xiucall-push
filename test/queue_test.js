@@ -4,7 +4,7 @@ import should from 'should';
 import crypto from 'crypto';
 import co from 'co';
 import _ from 'lodash';
-import { config, logger, debug, info, error } from '../lib/index.js';
+import { config, logger, debug, info, error } from '../lib/utils.js';
 import { Broker } from '../lib/queue.js';
 
 
@@ -75,22 +75,6 @@ describe('Broker connectivity tests.', function() {
     brk.connect().catch(err => {
       done(err);
     });
-  });
-});
-
-describe('Broker exception tests.', function() {
-  it('Test unreachable mongodb config.', function(done) {
-    let opts = {
-      mongo: 'mongodb://localhost:22222/messagessss'
-    };
-    let broker = new Broker(opts);
-    broker.connect().catch(function(err) {
-      should.exist(err);
-      done();
-    });
-  });
-  it('Test unreachable pub redis server config.', function(done) {
-    done();
   });
 });
 

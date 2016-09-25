@@ -1,5 +1,5 @@
 import Koa from 'koa';
-import { config, debug, error, info } from './index.js';
+import { config, debug, error, info } from './utils.js';
 import { Broker } from './queue.js';
 
 /**

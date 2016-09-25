@@ -2,7 +2,7 @@ import _ from 'lodash';
 import EventEmitter from 'events';
 import Redis from 'ioredis';
 import { MongoClient } from 'mongodb';
-import { debug, error, info, config } from './index.js';
+import { debug, error, info, config } from './utils.js';
 
 /**
  * 
@@ -14,17 +14,12 @@ class Broker extends EventEmitter {
    */
   constructor(opts) {
     super();
-    this.options = _.assign(Broker.defaultConfigs, config, opts);
-    let o = this.options;
-    let inner = {
-      lazyConnect: true,
-      connectTimeout: 5000
-    };
-    this.redisPub = new Redis(_.assign({
-      sentinels: o.redis.pub.endpoints,
-      name: o.redis.pub.name
-    }, inner));
-    this.redisSub = new Redis(o.redis.sub.host, o.redis.sub.port, inner);
+    this.options = _.assign(Broker.defaultConfigs, config.queue, opts);
+    let fixedOpts = {
+      lazyConnect: true
+    }
+    this.redisPub = new Redis(_.assign(fixedOpts, this.options.publisher.redis));
+    this.redisSub = new Redis(_.assign(fixedOpts, this.options.subscriber.redis));
     this.mongoClient = new MongoClient();
     this._setStatus(Broker.status.wait);
   }
@@ -57,23 +52,12 @@ class Broker extends EventEmitter {
     }
     this._setStatus(Broker.status.connecting);
 
-    // The ioredis do not complain the sentinel timeout between conncet -> ready.
-    let sentinelPromise = new Promise((fulfill, reject) => {
-      let sentinelTimeout = setTimeout(() => {
-        reject(new Error('Sentinels timeout.'));
-      }, 5000);
-      this.redisPub.connect().then(val => {
-        sentinelTimeout.close();
-        fulfill(val);
-      });
-    });
-
     await Promise.all([
-      MongoClient.connect(this.options.mongo)
+      MongoClient.connect(this.options.storage.mongo)
       .then(val => {
         this.mongo = val;
       }),
-      sentinelPromise,
+      this.redisPub.connect(),
       this.redisSub.connect()
     ]).catch(err => {
       throw new Error(`Broker connect failed, err: ${err}.`);
@@ -132,7 +116,7 @@ class Broker extends EventEmitter {
     if (!_.isString(id) || id.length === 0) {
       throw new Error(`Param 'id' not correct`);
     }
-    opts = _.assign(opts, { cappedSize: this.options.queue.size });
+    opts = _.assign(opts, { cappedSize: this.options.storage.size });
     return await Queue.create(id, this, opts).catch((err) => {
       throw new Error(`Get queue ${id} err: ${err}`);
     });
@@ -153,26 +137,25 @@ Broker.status = {
 
 /**
  * Config template and default value for broker.
- * `pub` is redis sentinels config for writable redis node.
- * `sub` is for readonly redis node. (use kubernetes service for LBS)
- * `pub.endpoints` 
+ * Redis configs see https://github.com/luin/ioredis
+ * MongoDB connect string see http://docs.mongodb.org/manual/reference/connection-string/
  */
 Broker.defaultConfigs = {
-  redis: {
-    pub: {
-      endpoints: [
-        { host: 'localhost', port: 26379 }
-      ],
-      name: 'mymaster'
-    },
-    sub: {
+  publisher: {
+    redis: {
       host: 'localhost',
       port: 6379
     }
   },
-  mongo: 'mongodb://localhost:27017/messages',
-  queue: {
-    size: 1024 * 1024 * 2 // size in byte
+  subscriber: {
+    redis: {
+      host: 'localhost',
+      port: 6379
+    }
+  },
+  storage: {
+    mongo: 'mongodb://localhost:27017/messages',
+    size: 1024 * 1024 * 2 // size in byte for all channel
   }
 };
 

@@ -1,7 +1,7 @@
 import 'babel-polyfill';
 import should from 'should';
 import urllib from 'urllib';
-import { config } from '../lib/index.js';
+import { config } from '../lib/utils.js';
 import { Server } from '../lib/api.js';
 
 

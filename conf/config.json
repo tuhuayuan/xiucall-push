@@ -1,22 +1,51 @@
 {
   "test": {
     "logger": {
-      "level": "debug"
+      "level": "info"
+    },
+    "queue": {
+      "publisher": {
+        "redis": {
+          "sentinels": [{ "host": "172.17.4.101", "port": 30030 }],
+          "name": "mymaster"
+        }
+      },
+      "subscriber": {
+        "redis": { "host": "172.17.4.101", "port": 32428 }
+      },
+      "storage": {
+        "mongo": "mongodb://172.17.4.101:30740,172.17.4.101:32524/messages?replicaSet=xiucall-mongo",
+        "size": 2097152
+      }
     },
     "api": {
       "host": "http://localhost:5000"
-    },
-    "redis": {
-      "pub": {
-        "endpoints": [
-          { "host": "172.17.4.101", "port": 30030 }
-        ],
-        "name": "mymaster"
-      },
-      "sub": { "host": "172.17.4.101", "port": 32428 }
-    },
-    "mongo": "mongodb://172.17.4.101:30740,172.17.4.101:32524/messages?replicaSet=xiucall-mongo"
+    }
   },
-  "development": {},
-  "production": {}
+  "development": {
+    "logger": {
+      "level": "info"
+    },
+    "queue": {
+      "publisher": {
+        "redis": {
+          "sentinels": [{ "host": "172.17.4.101", "port": 30030 }],
+          "name": "mymaster"
+        }
+      },
+      "subscriber": {
+        "redis": { "host": "172.17.4.101", "port": 32428 }
+      },
+      "storage": {
+        "mongo": "mongodb://172.17.4.101:30740,172.17.4.101:32524/messages?replicaSet=xiucall-mongo",
+        "size": 2097152
+      }
+    },
+    "api": {
+      "host": "http://localhost:5000"
+    }
+  },
+  "production": {
+    
+  }
 }
