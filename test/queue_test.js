@@ -89,6 +89,9 @@ describe('Broker exception tests.', function() {
       done();
     });
   });
+  it('Test unreachable pub redis server config.', function(done) {
+    done();
+  });
 });
 
 describe('Queue build tests.', function() {
@@ -135,10 +138,10 @@ describe('Queue build tests.', function() {
       done(err);
     });
   });
-  it('Test queue create->push->peek.', function(done) {
+  it('Test queue create -> push -> peek.', function(done) {
     let randomID = crypto.randomBytes(6).toString('hex');
     let message = {
-      from: "Test queue create->push->peek."
+      from: "Test queue create -> push -> peek."
     };
     this.broker.get(randomID, {
       mode: 'sub',
@@ -158,10 +161,10 @@ describe('Queue build tests.', function() {
       done(err);
     });
   });
-  it('Test queue create->peek->push.', function(done) {
+  it('Test queue create -> peek -> push.', function(done) {
     let randomID = crypto.randomBytes(6).toString('hex');
     let message = {
-      from: 'Test queue create->peek->push.'
+      from: 'Test queue create -> peek -> push.'
     };
     this.broker.get(randomID, {
       mode: 'sub',
@@ -396,5 +399,189 @@ describe('Queue message sequence.', function() {
     }).catch(err => {
       done(err);
     })
+  });
+});
+
+describe('Brokers operate on same message queue from 1 to 100 arithmetic sequence.', function() {
+  beforeEach(function(done) {
+    this.brokerA = new Broker();
+    this.brokerB = new Broker();
+    this.queueID = crypto.randomBytes(6).toString('hex');
+    this.messages = new Array(101);
+    for (let i = 1; i <= 100; i++) {
+      this.messages[i] = {
+        index: i,
+        padding: 'arithmetic sequence 1 to 100'
+      };
+    }
+    Promise.all([this.brokerA.connect(), this.brokerB.connect()]).then(val => {
+      done();
+    }).catch(err => {
+      done(err);
+    })
+  });
+
+  afterEach(function(done) {
+    Promise.all([this.brokerA.close(), this.brokerB.close()]).then(val => {
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+
+  it('Broker A publish, Broker B subscribe.', function(done) {
+    let context = this;
+    co(function*() {
+      let queuePub = yield context.brokerA.get(context.queueID, {
+        mode: 'pub',
+        autoCreate: true
+      });
+      let queueSub = yield context.brokerB.get(context.queueID, {
+        mode: 'sub',
+        autoCreate: true
+      });
+      let workerForPub = new Promise((fulfil, reject) => {
+        co(function*() {
+          for (let msg of context.messages) {
+            if (!msg) {
+              continue;
+            }
+            yield queuePub.push(msg);
+          }
+          fulfil();
+        }).catch(err => {
+          reject(err);
+        });
+      });
+      let workerForSub = new Promise((fulfil, reject) => {
+        co(function*() {
+          let count = 0;
+          let sum = 0;
+          while (true) {
+            let msg = yield queueSub.peek();
+            yield queueSub.commit();
+
+            count++;
+            sum += msg.payload.index;
+            if (count == 100) {
+              (sum).should.equal(5050);
+              return done();
+            }
+          }
+        }).catch(err => {
+          reject(err);
+        });
+      });
+      // Pub/Sub in concurrent.
+      yield [workerForPub, workerForSub];
+    }).catch(err => {
+      done(err);
+    });;
+  })
+
+  it('Broker A concurrent publish, Broker B subscribe.', function(done) {
+    let context = this;
+    co(function*() {
+      let queuePub = yield context.brokerA.get(context.queueID, {
+        mode: 'pub',
+        autoCreate: true
+      });
+      let queueSub = yield context.brokerB.get(context.queueID, {
+        mode: 'sub',
+        autoCreate: false
+      });
+      let workersForAll = _.map(context.messages, msg => {
+        queuePub.push(msg);
+      });
+      workersForAll.push(new Promise((fulfil, reject) => {
+        co(function*() {
+          let count = 0;
+          let sum = 0;
+          while (true) {
+            let msg = yield queueSub.peek();
+            yield queueSub.commit();
+
+            count++;
+            sum += msg.payload.index;
+            if (count == 100) {
+              (sum).should.equal(5050);
+              return done();
+            }
+          }
+        }).catch(err => {
+          reject(err);
+        });
+      }));
+      // Pub/Sub in concurrent.
+      yield workersForAll;
+    }).catch(err => {
+      done(err);
+    });
+  });
+
+  it('Broker A concurrent publish, Broker B open two subscriber channel.', function(done) {
+    let context = this;
+    co(function*() {
+      let queuePub = yield context.brokerA.get(context.queueID, {
+        mode: 'pub',
+        autoCreate: true
+      });
+      let queueSub1 = yield context.brokerB.get(context.queueID, {
+        mode: 'sub',
+        autoCreate: false,
+        channel: 0
+      });
+      let queueSub2 = yield context.brokerB.get(context.queueID, {
+        mode: 'sub',
+        autoCreate: false,
+        channel: 1
+      });
+      let workersForAll = _.map(context.messages, msg => {
+        queuePub.push(msg);
+      });
+      workersForAll.push(new Promise((fulfil, reject) => {
+        co(function*() {
+          let count = 0;
+          let sum = 0;
+          let createWorkerPromise = function(queue) {
+            let msg;
+            return queue.peek().then(val => {
+              msg = val;
+              return queue.commit();
+            }).then(() => {
+              return Promise.resolve(msg);
+            });
+          };
+          let workerSub1 = createWorkerPromise(queueSub1);
+          let workerSub2 = createWorkerPromise(queueSub2);
+          while (true) {
+            let [msg1, msg2] = yield Promise.all([
+              workerSub1.then(val => {
+                workerSub1 = createWorkerPromise(queueSub1);
+                return val;
+              }),
+              workerSub2.then(val => {
+                workerSub2 = createWorkerPromise(queueSub2);
+                return val;
+              })
+            ]);
+            for (let msg of[msg1, msg2]) {
+              count++;
+              sum += msg.payload.index;
+              if (count == 100 * 2) {
+                (sum).should.equal(5050 * 2);
+                return done();
+              }
+            }
+          }
+        }).catch(err => {
+          reject(err);
+        });
+      }));
+      // Pub/Sub in concurrent.
+      yield workersForAll;
+    }).catch(err => {
+      done(err);
+    });;
   });
 });

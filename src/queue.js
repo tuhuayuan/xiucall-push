@@ -120,7 +120,7 @@ class Broker extends EventEmitter {
    * 
    * opts.mode 'pub'(default) || 'sub'
    * opts.autoCreate true || false (default)
-   * 
+   * opts.channel (0 ~ 16)
    * Return:
    * If success return Promise.resolve(Queue), or Promise.reject(Error)
    * @public
@@ -188,6 +188,7 @@ class Queue extends EventEmitter {
     super();
     this.cappedSize = opts.cappedSize;
     this.authid = opts._authid;
+    this.channel = opts.channel || 0;
     this.messageChannel = `mch_${this.authid}`;
     this.mode = opts.mode || 'pub';
     this.autoCreate = opts.autoCreate || false;
@@ -272,7 +273,7 @@ class Queue extends EventEmitter {
     }
     await this.store.insertOne({
       payload: obj,
-      acked: false,
+      acked: 0,
       lastDate: new Date()
     }).catch(err => {
       throw new Error(`Push to queue err ${err}`);
@@ -307,7 +308,9 @@ class Queue extends EventEmitter {
       }).catch(err => {
         throw new Error(`Peeking canceled err: ${err}`);
       });
-      let message = await this.store.findOne({ acked: false });
+      let message = await this.store.findOne({
+        acked: { $bitsAnyClear: [this.channel] }
+      });
       if (message) {
         this._setStatus(Queue.status.ready);
         return message;
@@ -331,11 +334,13 @@ class Queue extends EventEmitter {
       throw new Error(`Can't peek on mode ${this.mode}`);
     }
     let result = await this.store.findOneAndUpdate({
-      acked: false
+      acked: { $bitsAnyClear: [this.channel] }
     }, {
       $set: {
-        acked: true,
         lastDate: new Date()
+      },
+      $bit: {
+        acked: { or: 1 << this.channel }
       }
     }).catch(err => {
       throw new Error(`Commit error: ${err}`);
