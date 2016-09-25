@@ -80,7 +80,7 @@ class Broker extends EventEmitter {
       throw new Error(`Close failed. error status ${this.status}`);
     }
     this._setStatus(Broker.status.closing);
-    // BUG: After ioredis quit promise resolved, status still ready.
+    // FixMe: The ioredis connection quited but status still ready.
     let redisQuit = function(client) {
       return new Promise((fulfill, reject) => {
         client.once('end', fulfill);
