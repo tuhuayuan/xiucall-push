@@ -5,10 +5,7 @@
     },
     "queue": {
       "publisher": {
-        "redis": {
-          "sentinels": [{ "host": "172.17.4.101", "port": 30030 }],
-          "name": "mymaster"
-        }
+        "redis": { "host": "172.17.4.101", "port": 32428 }
       },
       "subscriber": {
         "redis": { "host": "172.17.4.101", "port": 32428 }
@@ -19,9 +16,11 @@
       }
     },
     "api": {
-      "host": "http://localhost:5000"
+      "host": "172.17.4.101",
+      "port": 5000
     }
   },
+
   "development": {
     "logger": {
       "level": "info"
@@ -42,10 +41,12 @@
       }
     },
     "api": {
-      "host": "http://localhost:5000"
+      "host": "localhost",
+      "port": 8081
     }
   },
+
   "production": {
-    
+
   }
 }

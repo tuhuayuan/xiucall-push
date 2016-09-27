@@ -6,6 +6,8 @@
     "crypto": "^0.0.3",
     "ioredis": "^2.3.0",
     "koa": "^2.0.0",
+    "koa-bodyparser": "^3.2.0",
+    "koa-router": "^5.4.0",
     "mongodb": "2.2.9",
     "nconf": "^0.8.4",
     "socket.io": "^1.4.0",
