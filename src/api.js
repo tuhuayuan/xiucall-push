@@ -1,24 +1,28 @@
 import Koa from 'koa';
 import BodyParser from 'koa-bodyparser';
 import Router from 'koa-router';
+import crypto from 'crypto';
+import EventEmitter from 'events';
 import _ from 'lodash';
 import { config, debug, error, info } from './utils.js';
-import { Broker } from './queue.js';
+import Broker from './queue.js';
 
 /**
  * Restfull http server for xiucall-push.
  */
-class Server {
+class Server extends EventEmitter {
 
   /**
    * Setup broker, koa middlewares, api handlers.
    */
   constructor(opts) {
+    super();
     this.options = _.assign(Server.defaultConfigs, config.api, opts);
     this.app = new Koa();
     this.broker = new Broker();
     this.router = new Router();
     this.bodyParser = new BodyParser();
+    this.healthyID = crypto.randomBytes(6).toString('hex');
 
     // middlewares
     this.app
@@ -27,11 +31,12 @@ class Server {
       .use(this.bodyParser)
       .use(this.router.routes())
       .use(this.router.allowedMethods());
-
     // handlers
     this.router.post('/push', this._apiPush);
-    this.router.post('/healthy', this._apiHealthy);
+    this.router.get('/healthy', this._apiHealthy);
     this.router.get('/apis', this._apiVersion);
+    // Initialize status.
+    this._setStatus(Server.status.wait);
   }
 
   /**
@@ -49,6 +54,7 @@ class Server {
    */
   async _broker(ctx, next) {
     ctx.broker = this.broker;
+    ctx.healthyID = this.healthyID;
     await next();
   }
 
@@ -59,7 +65,7 @@ class Server {
    */
   async _apiPush() {
     if (!this.is('application/json') || !this.acceptsCharsets('utf-8')) {
-      this.throw('Accept application/json utf-8.', 400);
+      this.throw('Content-Type: application/json charset: utf-8.', 400);
     }
     let jsonBody = this.request.body;
     // Check validity.
@@ -109,13 +115,50 @@ class Server {
 
   /**
    * handler for /healthy
-   * 
    * @private
    */
-  async _apiHealthy(ctx) {
-
+  async _apiHealthy() {
+    // Go through queue operates and set complete timeout.
+    let timeout = _.toInteger(this.query.timeout);
+    timeout = timeout <= 0 ? 5000 : timeout;
+    await new Promise((fulfill, reject) => {
+      let timer = setTimeout(() => {
+        reject(408);
+      }, timeout);
+      let queue;
+      this.broker.get(this.healthyID, {
+        mod: 'pub',
+        autoCreate: true
+      }).then(val => {
+        queue = val;
+        return queue.push({ ok: 1 });
+      }).then(() => {
+        return queue.close(true);
+      }).then(() => {
+        timer.close();
+        fulfill();
+        this.status = 200;
+        this.body = { ok: 1 };
+      }).catch(err => {
+        reject(500);
+      });
+    }).catch(err => {
+      this.status = err;
+      this.body = { ok: 0};
+    });
   }
 
+  /**
+   * Change server status and emit Events.
+   * @private
+   */
+  _setStatus(status, args) {
+    this.status = status;
+
+    process.nextTick(() => {
+      this.emit(status, args);
+    });
+  }
 
   /**
    * Connect to message broker and start http server.
@@ -123,15 +166,25 @@ class Server {
    * @public
    */
   async start() {
+    if (this.status === Server.status.starting || this.status === Server.status.listening) {
+      throw new Error(`Start on wrong status ${this.status}`);
+    }
+    this._setStatus(Server.status.starting);
     await this.broker.connect();
-    this.app.listen(this.options.port, this.options.host);
+    this.server = this.app.listen(this.options.port, this.options.host);
+    this._setStatus(Server.status.listening);
   }
 
   /**
-   * 
+   * Shutdown api server.
    * @public
    */
   async shutdown() {
+    if (this.status === Server.status.listening) {
+      throw new Error(`Shutdown on wrong status ${this.status}`);
+    }
+    this._setStatus(Server.status.stopped);
+    this.server.close();
     await this.broker.close();
   }
 }
@@ -159,8 +212,11 @@ Server.defaultConfigs = {
  * Running status for api server.
  * 
  */
-Server.status = {};
+Server.status = {
+  wait: 'wait',
+  starting: 'connecting',
+  listening: 'listening',
+  stopped: 'stopped'
+};
 
-export {
-  Server
-}
+export default Server;

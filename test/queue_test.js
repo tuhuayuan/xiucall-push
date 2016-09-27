@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import co from 'co';
 import _ from 'lodash';
 import { config, logger, debug, info, error } from '../lib/utils.js';
-import { Broker } from '../lib/queue.js';
+import Broker from '../lib/queue.js';
 
 
 describe('Broker connectivity tests.', function() {
@@ -306,6 +306,30 @@ describe('Queue build tests.', function() {
       done();
     }).catch(err => {
       done(err);
+    });
+  });
+
+  it('Test queue create -> push -> close(dump).', function(done) {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create -> push -> close(dump).'
+    };
+    let queue;
+    this.broker.get(randomID, {
+      mode: 'pub',
+      autoCreate: true
+    }).then(val => {
+      queue = val;
+      return queue.push(message);
+    }).then(val => {
+      return queue.close(true);
+    }).then(() => {
+      return this.broker.get(randomID, {
+        mode: 'sub',
+        autoCreate: false
+      });
+    }).catch(err => {
+      done();
     });
   });
 });

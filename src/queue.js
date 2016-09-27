@@ -337,11 +337,12 @@ class Queue extends EventEmitter {
 
   /**
    * Close queue and release subscriber resource.
+   * @prama dump if true, queue storage will be all removed.
    * 
-   * Return Promise.resolve()
+   * @Return Promise.resolve()
    * @public
    */
-  async close() {
+  async close(dump = false) {
     if (this.status === Queue.status.end || this.status === Queue.status.closing) {
       throw new Error('Queue is closing or closed.');
     }
@@ -352,6 +353,9 @@ class Queue extends EventEmitter {
 
     if (this.mode === 'sub') {
       await this.sub.quit();
+    }
+    if (dump) {
+      await this.store.drop();
     }
     this._setStatus(Queue.status.end);
   }
@@ -394,6 +398,4 @@ Queue.status = {
   end: 'end'
 };
 
-export {
-  Broker
-}
+export default Broker;

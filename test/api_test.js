@@ -3,8 +3,9 @@ import should from 'should';
 import urllib from 'urllib';
 import crypto from 'crypto';
 import { config, debug, info } from '../lib/utils.js';
-import { Server } from '../lib/api.js';
-import { Broker } from '../lib/queue.js';
+import Broker from '../lib/queue.js';
+import Server from '../lib/api.js';
+
 
 
 describe('API http server tests.', function() {
@@ -142,5 +143,18 @@ describe('API http server tests.', function() {
         done();
       });
   });
-
+  it('Test server on /healthy.', function(done) {
+    urllib.request(this.url + '/healthy',
+      (err, data, res) => {
+        (res.status).should.equal(200);
+        done();
+      });
+  });
+  it('Test server on /healthy with a impossible timeout.', function(done) {
+    urllib.request(this.url + '/healthy?timeout=1',
+      (err, data, res) => {
+        (res.status).should.equal(408);
+        done();
+      });
+  });
 });
