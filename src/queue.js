@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { debug, error, info, config } from './utils.js';
 
 /**
- * 
+ * Message queue implement.
  */
 class Broker extends EventEmitter {
 
@@ -18,8 +18,8 @@ class Broker extends EventEmitter {
     let fixedOpts = {
       lazyConnect: true
     }
-    this.redisPub = new Redis(_.assign(fixedOpts, this.options.publisher.redis));
-    this.redisSub = new Redis(_.assign(fixedOpts, this.options.subscriber.redis));
+    this.redisPub = new Redis(_.assign(this.options.publisher.redis, fixedOpts));
+    this.redisSub = new Redis(_.assign(this.options.subscriber.redis, fixedOpts));
     this.mongoClient = new MongoClient();
     this._setStatus(Broker.status.wait);
   }

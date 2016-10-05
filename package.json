@@ -11,6 +11,7 @@
     "mongodb": "2.2.9",
     "nconf": "^0.8.4",
     "socket.io": "^1.4.0",
+    "co": "^4.6.0",
     "urllib": "^2.14.0",
     "winston": "^2.2.0"
   },
@@ -19,12 +20,14 @@
     "babel-polyfill": "^6.13.0",
     "babel-preset-latest": "^6.14.0",
     "babel-register": "^6.14.0",
-    "co": "^4.6.0",
     "mocha": "^3.0.2",
-    "should": "^11.1.0",
-    "socket.io-client": "^1.4.0"
+    "socket.io-client": "^1.4.0",
+    "should": "^11.1.0"
   },
-  "scripts": {},
+  "main": "./lib/index.js",
+  "scripts": {
+    "start": "node ./lib/index.js"
+  },
   "author": "tuhuayuan@gmail.com",
   "license": "ISC"
 }

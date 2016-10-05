@@ -10,11 +10,11 @@ import Server from '../lib/api.js';
 
 describe('API http server tests.', function() {
   before(function(done) {
-    let api = new Server();
+    this.api = new Server();
     let broker = new Broker();
     this.fixedQueueID = crypto.randomBytes(6).toString('hex');
     this.url = `http://${config.api.host}:${config.api.port}`;
-    api.start().then(() => {
+    this.api.start().then(() => {
       return broker.connect();
     }).then(() => {
       return broker.get(this.fixedQueueID, {
@@ -32,6 +32,8 @@ describe('API http server tests.', function() {
   after(function(done) {
     this.fixedQueue.peek().then(msg => {
       should.exist(msg);
+      return this.api.shutdown();
+    }).then(() => {
       done();
     }).catch(err => {
       done(err);

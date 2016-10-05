@@ -144,7 +144,7 @@ class Server extends EventEmitter {
       });
     }).catch(err => {
       this.status = err;
-      this.body = { ok: 0};
+      this.body = { ok: 0 };
     });
   }
 
@@ -180,7 +180,7 @@ class Server extends EventEmitter {
    * @public
    */
   async shutdown() {
-    if (this.status === Server.status.listening) {
+    if (this.status !== Server.status.listening) {
       throw new Error(`Shutdown on wrong status ${this.status}`);
     }
     this._setStatus(Server.status.stopped);

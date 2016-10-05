@@ -1,239 +1,311 @@
-var config = require("./config");
-var restify = require("restify");
-var crypto = require('crypto');
-var winston = require('winston');
-var Redis = require('ioredis');
-var SocketIO = require('socket.io');
-var co = require('co');
-var MongoClient = require('mongodb').MongoClient;
+import _ from 'lodash';
+import co from 'co';
+import Redis from 'ioredis';
+import crypto from 'crypto';
+import http from 'http';
+import EventEmitter from 'events';
+import SocketIO from 'socket.io';
+import Broker from './queue.js';
+import { config, debug, error, info } from './utils.js';
 
-var logger = new(winston.Logger)({
-  transports: [
-    new(winston.transports.Console)()
-  ],
-  level: config.logger.level
-});
+class Connector extends EventEmitter {
 
+  /**
+   * Setup socket.io server, auth middlewares.
+   */
+  constructor(opts) {
+    super();
+    this.options = _.assign(Connector.defaultConfigs, config.connector, opts);
+    this.broker = new Broker();
+    this.authKey = this.options.authKey;
+    // The backend http server.
+    this.server = http.createServer();
+    this.socketio = new SocketIO(this.server, {
+      transports: ['websocket']
+    });
+    // The socketio middleware
+    this.socketio.use(_.bind(this._authHandler, this));
+    this.socketio.use(_.bind(this._initHandler, this));
+    this.socketio.on('connection', _.bind(this._connectHandler, this));
+  }
 
-var format = function(bytes) {
-  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+  /**
+   * start connector.
+   * @public
+   */
+  async start() {
+    await this.broker.connect();
+    this.session = await SessionManager.create({});
+    this.session.on('kicked', _.bind(this._kickedHandler, this));
+    this.server.listen(this.options.port, this.options.host);
+  }
+
+  /**
+   * stop connector.
+   * @public
+   */
+  async shutdown() {
+    this.server.close();
+    await this.session.close();
+    await this.broker.close();
+  }
+
+  /**
+   * Change server status and emit Events.
+   * @private
+   */
+  _setStatus(status, args) {
+    this.status = status;
+
+    process.nextTick(() => {
+      this.emit(status, args);
+    });
+  }
+
+  /**
+   * middleware for socketio server.
+   * @socket socketio socket.
+   * @next function for next middleware.
+   */
+  _authHandler(socket, next) {
+    let headers = socket.request.headers;
+    let nbbAuthid = headers['x-nbb-authid'];
+    let nbbSign = headers['x-nbb-sign'];
+    let hash = crypto.createHash("md5");
+    socket.authenticated = false;
+    if (nbbAuthid && nbbSign) {
+      let result = nbbSign.split(",");
+      if (result.length > 1) {
+        hash.update(result[1] + config.connector.authKey + nbbAuthid);
+        if (result[0] === hash.digest('hex')) {
+          socket.authenticator = nbbAuthid;
+          return next();
+        }
+      }
+    }
+    socket.disconnect();
+  }
+
+  /**
+   * middleware for initialize
+   * @private
+   */
+  _initHandler(socket, next) {
+    this.broker.get(socket.authenticator, {
+      autoCreate: true,
+      mode: 'sub'
+    }).then(val => {
+      socket.queue = val;
+      socket.on('disconnect', this._disconnectHandler);
+      return this.session.join(socket.authenticator, socket);
+    }).then(val => {
+      socket.sessionID = val;
+      socket.sessionManager = this.session;
+      next();
+    }).catch(err => {
+      socket.disconnect();
+    });
+  }
+
+  /**
+   * Handle client connection then send a void message.
+   * Bind#this
+   * @private
+   */
+  _connectHandler(socket) {
+    socket.on('commit', this._commitHandler);
+    socket.emit('message', []);
+  }
+
+  /**
+   * Handle queue commit.
+   * Bind#socket
+   * @private
+   */
+  _commitHandler() {
+
+  }
+
+  /**
+   * Handle client disconnect.
+   * Bind#socket
+   * @private
+   */
+  _disconnectHandler() {
+    if (this.queue) {
+      this.queue.close();
+    }
+    if (this.sessionManager) {
+      this.sessionManager.remove(this.sessionID);
+    }
+  }
+
+  /**
+   * Handle kicked message from session manager.
+   * Bind#this
+   * @private
+   */
+  _kickedHandler(sessionID, socket) {
+    socket.disconnect();
+  }
 }
 
-setInterval(() => {
-  let mem = process.memoryUsage();
-  console.log('Process: heapTotal ' + format(mem.heapTotal) + ' heapUsed ' + format(mem.heapUsed) + ' rss ' + format(mem.rss));
+/**
+ * default configs.
+ */
+Connector.defaultConfigs = {
+  host: "localhost",
+  port: 8080,
+  authKey: 'nibabakey'
+};
 
-}, 5000);
+/**
+ * Connector status.
+ */
+Connector.status = {
+  wait: 'wait',
+  starting: 'connecting',
+  listening: 'listening',
+  stopped: 'stopped'
+}
 
-co(function*() {
-  // MongoDB server
-  let mongodb =
-    yield MongoClient.connect(config.mongo.url); 
-  logger.info('MongoDB connected');
 
-  // Redis server
-  let roClient = new Redis(config.slave.host, config.slave.port, {
-    lazyConnect: true
-  });
-  let client = new Redis({
-    sentinels: [{
-      host: config.sentinel.host,
-      port: config.sentinel.port
-    }],
-    name: config.sentinel.name,
-    lazyConnect: true
-  });
-  yield [client.connect(), roClient.connect()];
-  logger.info('Redis connected');
+/**
+ * SessionManager for connector using redis.
+ * @private 
+ */
+class SessionManager extends EventEmitter {
+  constructor(opts) {
+    super();
+    this.options = _.assign(SessionManager.defaultConfigs, config.session, opts);
+    this.redisPub = new Redis(_.assign(this.options.redis, {
+      lazyConnect: true
+    }));
+    this.clientMap = new Map();
+    this.redisSub = this.redisPub.duplicate();
+    this.redisSub.on('pmessage', _.bind(this._onMessage, this));
+  }
 
-  // RESTFull server.
-  let server = restify.createServer();
-  server.listen(config.web.port);
-  logger.info('RESTFull server listen on :' + config.web.port);
-
-  server.use(restify.bodyParser());
-  let pushCallback = co.wrap(function*(request, response, next) {
-    if (!request.is('application/json')) {
-      return next(new restify.InvalidContentError("Need application/json"));
-    }
-    let jsonBody = request.body;
-    if (!jsonBody || typeof jsonBody !== 'object')
-      return next(new restify.InvalidContentError("body required."));
-    if (!jsonBody.send_id)
-      return next(new restify.InvalidContentError("send_id required."));
-    if (!jsonBody.channel)
-      return next(new restify.InvalidContentError("channel required."));
-    if (!jsonBody.recv_id || jsonBody.recv_id.length == 0)
-      return next(new restify.InvalidContentError("recv_id required."));
-    if (!jsonBody.data)
-      return next(new restify.InvalidContentError("data required."));
-    let msgObj = {};
-    msgObj.channel = jsonBody.channel;
-    msgObj.from = jsonBody.send_id;
-    msgObj.data = jsonBody.data;
-    jsonBody.recv_id.forEach(receiver => {
-      mongodb.collection(receiver, {
-        strict: true
-      }, co.wrap(function*(err, col) {
-        if (!err) {
-          logger.debug('Insert to %s, %s', receiver, msgObj);
-          let insResult =
-            yield col.insertOne({
-              payload: msgObj,
-              acked: false
-            });
-          if (insResult.insertedCount > 0) {
-            logger.debug('Notify message channel %s', receiver);
-            yield client.publish('m_' + receiver, false);
-          }
-        }
-        // Don't do anything if number not logged before.
-      }));
+  /**
+   * Need two master connection.
+   * @private 
+   */
+  async _connect() {
+    await Promise.all([
+      this.redisPub.connect(),
+      this.redisSub.connect()
+    ]).catch(err => {
+      throw new Error(`Session manager connect error: ${err}`);
     });
-    response.send(200);
-    return next();
-  });
-  server.post('/push', pushCallback);
+  }
 
-  // SocketIO server
-  let socketio = SocketIO(config.socketio.port);
-  logger.info('SocketIO server listen on :' + config.socketio.port);
-  let socketioAuth = co.wrap(function*(socket, next) {
-    let headers = socket.request.headers;
-    let nbb_authid = headers['x-nbb-authid'];
-    let nbb_sign = headers['x-nbb-sign'];
-    let hasher = crypto.createHash("md5");
-    let authed = false;
+  /**
+   * Close the session.
+   * @public
+   */
+  async close() {
+    await Promise.all([
+      this.redisPub.quit(),
+      this.redisSub.quit()
+    ]).catch(err => {
+      throw new Error(`Session manager disconnect error: ${err}`);
+    });
+  }
 
-    if (nbb_authid && nbb_sign) {
-      let result = nbb_sign.split(",");
-      if (result.length > 1) {
-        hasher.update(result[1] + config.auth.key + nbb_authid);
-        if (result[0] === hasher.digest('hex')) {
-          // Auth OK.
-          authed = true;
-        }
-      }
+  /**
+   * A new client join in.
+   * return a string for session id.
+   * @public
+   */
+  async join(id, args = undefined) {
+    let randomID = crypto.randomBytes(4).toString('hex');
+    let clientID = `session_${id}`;
+    let sessionID = `${clientID}_${randomID}`;
+    let token = await this.redisPub.incr(`index_${id}`);
+    let clients = this.clientMap.get(clientID);
+    if (!clients) {
+      clients = new Map();
     }
+    clients.set(randomID, { index: token, args: args });
+    this.clientMap.set(clientID, clients);
+    await this.redisSub.psubscribe(`${clientID}_*`);
+    await this.redisPub.publish(sessionID, token);
+    return sessionID;
+  }
 
-    if (!authed) {
-      logger.debug('Disconnect by auth error');
-      socket.disconnect();
+  /**
+   * remove with session id which returned by join
+   * @public
+   */
+  async remove(sessionID) {
+    const [prefix, id, randomID] = _.split(sessionID, '_', 3);
+    if (prefix !== 'session') {
       return;
     }
+    const clientID = `${prefix}_${id}`;
+    const clients = this.clientMap.get(clientID);
+    if (_.isUndefined(clients) || _.isEmpty(clients)) {
+      return;
+    }
+    client.delete(randomID);
+    if (client.size === 0) {
+      await this.redisSub.punsubscribe(`${clientID}_*`);
+    }
+  }
 
-    // message queue
-    mongodb.collection(nbb_authid, {
-      strict: true
-    }, co.wrap(function*(err, col) {
+  /**
+   * Handler redis subscribed message.
+   * Bind#this
+   * @private
+   */
+  _onMessage(pattern, sessionID, token) {
 
-      if (err) {
-        logger.debug('First create queue %s', nbb_authid);
-        col =
-          yield mongodb.createCollection(nbb_authid, {
-            capped: true,
-            size: config.push.queue_size
-          });
+    const [prefix, id, randomID] = _.split(sessionID, '_', 3);
+    if (prefix !== 'session') {
+      return;
+    }
+    const clientID = `${prefix}_${id}`;
+    const clients = this.clientMap.get(clientID);
+    if (_.isUndefined(clients) || _.isEmpty(clients)) {
+      return;
+    }
+    const indexRemote = _.toInteger(token);
+    clients.forEach((val, randomID) => {
+      const indexLocal = val.index;
+      const args = val.args;
+
+      // The lower index will be kickout.
+      const localSession = `${clientID}_${randomID}`;
+      if (indexRemote > indexLocal) {
+        this.remove(localSession);
+        this.emit('kicked', localSession, args);
+      } else if (indexRemote < indexLocal) {
+        this.redisPub.publish(localSession, indexLocal);
       }
-      socket.queue = col;
-      socket.authid = nbb_authid;
-      socket.mch = 'm_' + socket.authid;
-      socket.cch = 'c_' + socket.authid;
-      socket.redisClient = roClient.duplicate();
-      socket.isCommitting = true;
-      socket.waiting = 0;
-      // Clean redis connection when socketio disconnected.
-      socket.on('disconnect', () => {
-        logger.debug('id: ' + socket.authid + ' socket: ' + socket.id + ' disconnected.');
-        socket.redisClient.disconnect();
-      });
-      yield socket.redisClient.connect();
+    });
+  }
+}
 
-      let kickId =
-        yield client.incr('i_' + socket.authid);
-      socket.index = kickId;
-
-      let onControlChannel = co.wrap(function*(message, socket) {
-        if (message > socket.index) {
-          logger.debug('Kicked: %s, %d, %d', socket.authid, socket.index, message);
-          socket.disconnect();
-        } else if (message < socket.index) {
-          yield client.publish(socket.cch, socket.index);
-        }
-      });
-
-      let onMessageChannel = co.wrap(function*(nullAble, socket) {
-        logger.debug('Message channel %s:%s, %s, %s', socket.id, socket.authid, socket.isCommitting, nullAble);
-        if (socket.isCommitting) {
-          socket.isCommitting = false;
-          let msgArray = new Array();
-          let msgObj =
-            yield socket.queue.findOne({
-              acked: false
-            });
-          if (msgObj) {
-            msgArray.push(msgObj.payload);
-          }
-
-          if (msgArray.length == 0 && nullAble == 'false') {
-            socket.isCommitting = true;
-            if (socket.waiting > 0) {
-              logger.debug('Message not found, retry on waitings %d', socket.waiting);
-              socket.waiting -= 1;
-              client.publish(socket.mch, nullAble);
-            }
-          } else {
-            logger.debug('Message %d to %s:%s waitings %s cleared.', msgArray.length, socket.id, socket.authid, socket.waiting);
-            socket.waiting = 0;
-            socket.emit('message', msgArray);
-          }
-        } else {
-          // Increase waiting counter.
-          socket.waiting += 1;
-        }
-      });
-
-      // Process subscribed message.
-      socket.redisClient.on('message', function(channel, message) {
-        if (channel === socket.mch) {
-          onMessageChannel(message, socket);
-        } else if (channel === socket.cch) {
-          onControlChannel(message, socket);
-        } else {
-          logger.error('Unexpected channel message.');
-        }
-      });
-      // Login control channel.ach
-      yield socket.redisClient.subscribe(socket.cch);
-      // Message nofity channel.
-      yield socket.redisClient.subscribe(socket.mch);
-      // Send kick message.
-      yield client.publish(socket.cch, kickId);
-      // Send pushing nofitfy
-      yield client.publish(socket.mch, true);
-      return next();
-    }));
+/**
+ * SessionManager factory
+ */
+SessionManager.create = async function(opts) {
+  let ret = new SessionManager(opts);
+  await ret._connect().catch(err => {
+    throw new Error(`Create session manager error: ${err}`);
   });
-  socketio.use(socketioAuth);
-  socketio.on('connection', function(socket) {
-    logger.debug('socket ' + socket.id + ' id: ' + socket.authid + ' connected.');
-    socket.on('commit', co.wrap(function*(count) {
-      logger.debug('client %s commit %d.', socket.authid, count);
-      if (!socket.isCommitting) {
-        for (let i = 0; i < count; i++) {
-          yield socket.queue.findOneAndUpdate({
-            acked: false
-          }, {
-            $set: {
-              acked: true
-            }
-          });
-        }
-        socket.isCommitting = true;
-        yield client.publish(socket.mch, false);
-      }
-    }));
-  });
-}).catch(function onerror(err) {
-  logger.error('Uncatched exception : %s', err.stack);
-});
+  return ret;
+}
+
+/**
+ * SessionManager default configs
+ * redis must be master if using sentinel cluster.
+ */
+SessionManager.defaultConfigs = {
+  redis: {
+    host: 'localhost',
+    port: 6379
+  }
+};
+
+export default Connector;

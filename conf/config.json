@@ -18,6 +18,14 @@
     "api": {
       "host": "172.17.4.101",
       "port": 5000
+    },
+    "connector": {
+      "host": "172.17.4.101",
+      "port": 8080,
+      "authKey": "MjNW3%Qz~lPxOG:gL,^RcF?Xf)EqS_{h[J<t!4=8"
+    },
+    "session": {
+      "redis": { "host": "172.17.4.101", "port": 32428 }
     }
   },
 
@@ -46,7 +54,5 @@
     }
   },
 
-  "production": {
-
-  }
+  "production": {}
 }
