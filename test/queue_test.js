@@ -4,8 +4,8 @@ import should from 'should';
 import crypto from 'crypto';
 import co from 'co';
 import _ from 'lodash';
-import { config, logger, debug, info, error } from '../lib/utils.js';
-import Broker from '../lib/queue.js';
+import { config, logger, debug, info, error } from '../src/utils.js';
+import Broker from '../src/queue.js';
 
 
 describe('Broker connectivity tests.', function() {

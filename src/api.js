@@ -34,6 +34,7 @@ class Server extends EventEmitter {
       .use(this.router.allowedMethods());
     // handlers
     this.router.post('/push', this._apiPush);
+    this.router.get('/queue');
     this.router.get('/healthy', this._apiHealthy);
     this.router.get('/apis', this._apiVersion);
     // Initialize status.
