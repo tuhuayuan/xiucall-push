@@ -20,6 +20,15 @@ lib/%.js: src/%.js .babelrc
 	mkdir -p $(@D)
 	./node_modules/.bin/babel $< -o $@
 
+test-cover: build
+	@NODE_ENV=test ./node_modules/.bin/babel-node \
+	  ./node_modules/.bin/babel-istanbul cover \
+		./node_modules/.bin/_mocha -- \
+		--reporter $(REPORTER) \
+		--timeout $(TIMEOUT) \
+		$(MOCHA_OPTS) \
+		$(TESTS)
+		
 test: build
 	@NODE_ENV=test ./node_modules/.bin/mocha \
 		--reporter $(REPORTER) \
