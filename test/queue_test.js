@@ -410,7 +410,7 @@ describe('Queue message sequence.', function() {
   });
 });
 
-describe('Brokers operate on same message queue from 1 to 100 arithmetic sequence.', function() {
+describe('Two brokers operate on same message queue from 1 to 100 arithmetic sequence.', function() {
   beforeEach(function(done) {
     this.brokerA = new Broker();
     this.brokerB = new Broker();

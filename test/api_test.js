@@ -116,8 +116,55 @@ describe('API http server tests.', function() {
       });
   });
 
+  it('Test concurrency 1 to 100.', function(done) {
+    const workers = new Array();
+    for (let i = 1; i < 100; i++) {
+      workers.push(urllib.request(this.url + '/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        content: JSON.stringify({
+          'send_id': 'xiuhua_server',
+          'channel': ['unitpart_changed'],
+          'recv_id': [crypto.randomBytes(6).toString('hex')],
+          'data': {
+            'index': i
+          }
+        })
+      }));
+    }
+    Promise.all(workers).then(val => {
+      done();
+    }).catch(err => {
+      done(err);
+    });
+  });
+
+  it('Test server on /push with autoCreate true.', function(done) {
+    urllib.request(this.url + '/push?strictMode=1&&autoCreate=1', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        content: JSON.stringify({
+          'send_id': 'xiuhua_server',
+          'channel': ['unitpart_changed'],
+          'recv_id': [crypto.randomBytes(6).toString('hex')],
+          'data': {
+            'company_id': '585',
+            'version': '111'
+          }
+        })
+      },
+      (err, data, res) => {
+        (res.status).should.equal(200);
+        done();
+      });
+  });
+
   it('Test server on /push with strict mode.', function(done) {
-    urllib.request(this.url + '/push?strict=1', {
+    urllib.request(this.url + '/push?strictMode=1', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

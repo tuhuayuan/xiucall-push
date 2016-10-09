@@ -14,12 +14,14 @@ class Broker extends EventEmitter {
    */
   constructor(opts) {
     super();
-    this.options = _.assign(Broker.defaultConfigs, config.queue, opts);
+    this.setMaxListeners(0);
+    this.options = {};
+    _.assign(this.options, Broker.defaultConfigs, config.queue, opts);
     let fixedOpts = {
       lazyConnect: true
     }
-    this.redisPub = new Redis(_.assign(this.options.publisher.redis, fixedOpts));
-    this.redisSub = new Redis(_.assign(this.options.subscriber.redis, fixedOpts));
+    this.redisPub = new Redis(_.assign({}, this.options.publisher.redis, fixedOpts));
+    this.redisSub = new Redis(_.assign({}, this.options.subscriber.redis, fixedOpts));
     this.mongoClient = new MongoClient();
     this._setStatus(Broker.status.wait);
   }
@@ -94,7 +96,7 @@ class Broker extends EventEmitter {
       redisQuit(this.redisPub),
       redisQuit(this.redisSub)
     ]).catch(err => {
-      debug(`Close broker err: ${err}`);
+      throw new Error(`Close broker error ${err}`);
     });
     this._setStatus(Broker.status.end);
   }
@@ -116,8 +118,9 @@ class Broker extends EventEmitter {
     if (!_.isString(id) || id.length === 0) {
       throw new Error(`Param 'id' not correct`);
     }
-    opts = _.assign(opts, { cappedSize: this.options.storage.size });
-    return await Queue.create(id, this, opts).catch((err) => {
+    let getOpts = {};
+    _.assign(getOpts, opts, { cappedSize: this.options.storage.size });
+    return await Queue.create(id, this, getOpts).catch((err) => {
       throw new Error(`Get queue ${id} err: ${err}`);
     });
   }
@@ -190,28 +193,43 @@ class Queue extends EventEmitter {
     }
     // Using mongodb capped collection for queue message storage.
     let mongo = this.broker.mongo;
-    this.store = await new Promise((fulfill, reject) => {
-      mongo.collection(this.authid, { strict: true }, (err, col) => {
-        if (err && this.autoCreate) {
-          mongo.createCollection(this.authid, {
-            capped: true,
-            size: this.cappedSize
-          }).then(col => {
+    let retry = 2;
+    while (retry > 0) {
+      this.store = await new Promise((fulfill, reject) => {
+        mongo.collection(this.authid, { strict: true }, (err, col) => {
+          if (err && this.autoCreate) {
+            mongo.createCollection(this.authid, {
+              capped: true,
+              size: this.cappedSize
+            }).then(col => {
+              fulfill(col);
+            }).catch(err => {
+              reject({
+                retry: true,
+                error: new Error(`Queue ${this.authid} create failed. err ${err}`)
+              });
+            });
+          } else if (!err) {
             fulfill(col);
-          }).catch(err => {
-            reject(new Error(`Queue ${this.authid} create failed. err ${err}`));
-          });
-        } else if (!err) {
-          fulfill(col);
-        } else {
-          reject(new Error(`Queue ${this.authid} not exist.`));
+          } else {
+            reject({
+              retry: false,
+              error: new Error(`Queue ${this.authid} not exist.`)
+            });
+          }
+        });
+      }).then(val => {
+        retry = 0;
+        return val;
+      }).catch(err => {
+        // Retry in case queue created by others between `get` and `create`.
+        retry -= 1;
+        if (!err.retry || retry == 0) {
+          throw err;
         }
       });
-    }).catch(err => {
-      throw err;
-    });
-
-    // Pub is reuse.
+    }
+    // Pub can be reused.
     this.pub = this.broker.redisPub;
 
     // Clone a redis connect for Subscriber.
@@ -282,7 +300,7 @@ class Queue extends EventEmitter {
       throw new Error(`Can't peek on mode ${this.mode}`);
     }
     this._setStatus(Queue.status.peeking);
-    // Get message direct from store or wait message incoming notify.
+    // Get message direct from store or wait message notify.
     while (true) {
       let signal = new Promise((fulfill, reject) => {
         // signal hook.
@@ -293,7 +311,7 @@ class Queue extends EventEmitter {
       });
       let message = await this.store.findOne({
         acked: { $bitsAnyClear: [this.channel] }
-      });
+      })
       if (message) {
         this._setStatus(Queue.status.ready);
         return message;
@@ -379,8 +397,9 @@ class Queue extends EventEmitter {
  * @private
  */
 Queue.create = async function(id, broker, opts) {
-  opts = _.assign(opts, { _authid: id, _broker: broker });
-  let q = new Queue(opts);
+  let createOpts = {};
+  _.assign(createOpts, opts, { _authid: id, _broker: broker });
+  let q = new Queue(createOpts);
   await q._build().catch((err) => {
     throw new Error(`Queue ${id} create failed err: ${err}`);
   });

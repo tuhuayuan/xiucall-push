@@ -15,7 +15,8 @@ class Connector extends EventEmitter {
    */
   constructor(opts) {
     super();
-    this.options = _.assign(Connector.defaultConfigs, config.connector, opts);
+    this.options = {};
+    _.assign(this.options, Connector.defaultConfigs, config.connector, opts);
     this.broker = new Broker();
     this.authKey = this.options.authKey;
     // The backend http server.
@@ -113,7 +114,7 @@ class Connector extends EventEmitter {
    * @private
    */
   _connectHandler(socket) {
-    socket.on('commit', this._commitHandler);
+    socket.on('commit', co.wrap(this._commitHandler));
     socket.emit('message', []);
   }
 
@@ -122,8 +123,15 @@ class Connector extends EventEmitter {
    * Bind#socket
    * @private
    */
-  _commitHandler() {
-
+  *
+  _commitHandler(count) {
+    const socket = this;
+    let committing = _.toInteger(count) <= 0 ? 0 : 1;
+    if (committing != 0) {
+      yield socket.queue.commit();
+    }
+    let msg = yield socket.queue.peek();
+    socket.emit('message', [msg.payload]);
   }
 
   /**
@@ -177,8 +185,9 @@ Connector.status = {
 class SessionManager extends EventEmitter {
   constructor(opts) {
     super();
-    this.options = _.assign(SessionManager.defaultConfigs, config.session, opts);
-    this.redisPub = new Redis(_.assign(this.options.redis, {
+    this.options = {};
+    _.assign(this.options, SessionManager.defaultConfigs, config.session, opts);
+    this.redisPub = new Redis(_.assign({}, this.options.redis, {
       lazyConnect: true
     }));
     this.clientMap = new Map();
@@ -247,8 +256,8 @@ class SessionManager extends EventEmitter {
     if (_.isUndefined(clients) || _.isEmpty(clients)) {
       return;
     }
-    client.delete(randomID);
-    if (client.size === 0) {
+    clients.delete(randomID);
+    if (clients.size === 0) {
       await this.redisSub.punsubscribe(`${clientID}_*`);
     }
   }

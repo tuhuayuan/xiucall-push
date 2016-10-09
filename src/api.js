@@ -17,7 +17,8 @@ class Server extends EventEmitter {
    */
   constructor(opts) {
     super();
-    this.options = _.assign(Server.defaultConfigs, config.api, opts);
+    this.options = {};
+    _.assign(this.options, Server.defaultConfigs, config.api, opts);
     this.app = new Koa();
     this.broker = new Broker();
     this.router = new Router();
@@ -89,13 +90,13 @@ class Server extends EventEmitter {
     let allPushs = _.map(jsonBody.recv_id, receiver => {
       return this.broker.get(receiver, {
         mode: 'pub',
-        autoCreate: false
+        autoCreate: this.request.query.autoCreate ? this.request.query.autoCreate : false
       }).then(queue => {
-        queue.push(queueMessage);
+        return queue.push(queueMessage);
       });
     });
     await Promise.all(allPushs).catch(err => {
-      if (this.request.query.strict) {
+      if (this.request.query.strictMode) {
         this.throw(406, `Push not finished. err: ${err}`);
       }
     });
