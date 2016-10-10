@@ -28,8 +28,8 @@
   },
   "main": "./lib/index.js",
   "scripts": {
-    "start": "node ./lib/index.js"
+    "test": "make test"
   },
   "author": "tuhuayuan@gmail.com",
-  "license": "ISC"
+  "license": "MIT"
 }

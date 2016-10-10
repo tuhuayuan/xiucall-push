@@ -1,6 +1,7 @@
 SRC = $(wildcard src/*.js)
 LIB = $(SRC:src/%.js=lib/%.js)
 TESTS ?= $(shell ls -S `find test -type f -name "*.js" -print`)
+MODE ?= connector
 
 # unittest configs
 MOCHA_OPTS = --compilers js:babel-register -s 200
@@ -20,7 +21,7 @@ lib/%.js: src/%.js .babelrc
 	mkdir -p $(@D)
 	./node_modules/.bin/babel $< -o $@
 
-test-cover: build
+test-cov: 
 	@NODE_ENV=test ./node_modules/.bin/babel-node \
 	  ./node_modules/.bin/babel-istanbul cover \
 		./node_modules/.bin/_mocha -- \
@@ -29,7 +30,7 @@ test-cover: build
 		$(MOCHA_OPTS) \
 		$(TESTS)
 		
-test: build
+test: 
 	@NODE_ENV=test ./node_modules/.bin/mocha \
 		--reporter $(REPORTER) \
 		--timeout $(TIMEOUT) \
@@ -39,4 +40,7 @@ test: build
 clean:
 	@rm -rf $(LIB)
 
-.PHONY: test install reinstall clean
+run: build
+	@node lib/index.js --mode $(MODE)
+
+.PHONY: test test-cov install reinstall clean run

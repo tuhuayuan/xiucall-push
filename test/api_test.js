@@ -7,7 +7,6 @@ import Broker from '../src/queue.js';
 import Server from '../src/api.js';
 
 
-
 describe('API http server tests.', function() {
   before(function(done) {
     this.api = new Server();
