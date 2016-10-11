@@ -196,9 +196,11 @@ class Server extends EventEmitter {
  */
 Server.apis = {
   v1: [
-    "/push",
-    "/healthy",
-    "/apis"
+    '/push',
+    '/healthy',
+    '/apis',
+    '/queue',
+    '/clients'
   ]
 };
 
