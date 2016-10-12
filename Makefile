@@ -5,16 +5,15 @@ UNITTESTS ?= $(shell ls -S `find test/unittests -type f -name "*.js" -print`)
 MODE ?= connector
 
 # unittest configs
-MOCHA_OPTS = --compilers js:babel-register -s 200
+MOCHA_OPTS = --compilers js:babel-register -s 1000
 TIMEOUT = 5000
 REPORTER = spec
 
 install:
 	npm --registry=https://registry.npm.taobao.org install
 
-reinstall:
+uninstall:
 	@rm -rf ./node_modules
-	@$(MAKE) install
 
 build: $(LIB)
 	@mkdir -p ./bin
@@ -31,11 +30,16 @@ test-cov:
 		--reporter $(REPORTER) \
 		--timeout $(TIMEOUT) \
 		$(MOCHA_OPTS) \
-		$(FUNCTESTS)
+		$(FUNCTESTS) $(UNITTESTS)
 		
 test: test-unit test-func
 
 test-unit:
+	@NODE_ENV=test ./node_modules/.bin/mocha \
+	  -r ./test/entry.js \
+		--reporter $(REPORTER) \
+		$(MOCHA_OPTS) \
+		$(UNITTESTS)
 
 test-func:
 	@NODE_ENV=test ./node_modules/.bin/mocha \
@@ -47,7 +51,7 @@ test-func:
 
 clean:
 	@rm -rf $(LIB)
-	@rm -rf ./bin
+	@rm -rf ./bin/*
 
 run: build
 	@node lib/index.js --mode $(MODE)

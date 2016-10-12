@@ -1,4 +1,3 @@
-import assert from 'assert';
 import should from 'should';
 import crypto from 'crypto';
 import co from 'co';

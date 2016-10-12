@@ -21,7 +21,6 @@
     "babel-polyfill": "^6.13.0",
     "babel-preset-latest": "^6.14.0",
     "babel-register": "^6.14.0",
-    "istanbul": "^0.4.5",
     "mocha": "^3.0.2",
     "should": "^11.1.0",
     "socket.io-client": "^1.4.0"
