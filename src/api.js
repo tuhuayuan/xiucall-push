@@ -18,7 +18,7 @@ class Server extends EventEmitter {
   constructor(opts) {
     super();
     this.options = {};
-    _.assign(this.options, Server.defaultConfigs, config.api, opts);
+    _.assign(this.options, config.api, opts);
     this.app = new Koa();
     this.broker = new Broker();
     this.router = new Router();
@@ -202,14 +202,6 @@ Server.apis = {
     '/queue',
     '/clients'
   ]
-};
-
-/**
- * Default config for api server.
- */
-Server.defaultConfigs = {
-  host: 'localhost',
-  port: 5000
 };
 
 /**

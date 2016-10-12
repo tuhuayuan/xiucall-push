@@ -43,5 +43,6 @@ jspm_packages
 # Compiled libs
 lib
 
-# don't upload config file
-conf/config.json
+# exclude all config file except default config.
+conf/*
+!conf/default.json

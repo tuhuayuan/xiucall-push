@@ -4,11 +4,11 @@ import winston from 'winston';
 const context = nconf.argv().env().file('./conf/config.json');
 
 nconf.defaults({
-  'NODE_ENV': 'development'
+  'NODE_ENV': 'default'
 });
 
 // Get profile config
-const config = context.get(context.get('NODE_ENV')) || {};
+const config = nconf.file(`./conf/${context.get('NODE_ENV')}.json`).get();
 
 // Create logger
 let level = 'info';

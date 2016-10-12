@@ -16,7 +16,7 @@ class Broker extends EventEmitter {
     super();
     this.setMaxListeners(0);
     this.options = {};
-    _.assign(this.options, Broker.defaultConfigs, config.queue, opts);
+    _.assign(this.options, config.queue, opts);
     let fixedOpts = {
       lazyConnect: true
     }
@@ -136,30 +136,6 @@ Broker.status = {
   connect: 'connect',
   closing: 'closing',
   end: 'end'
-};
-
-/**
- * Config template and default value for broker.
- * Redis configs see https://github.com/luin/ioredis
- * MongoDB connect string see http://docs.mongodb.org/manual/reference/connection-string/
- */
-Broker.defaultConfigs = {
-  publisher: {
-    redis: {
-      host: 'localhost',
-      port: 6379
-    }
-  },
-  subscriber: {
-    redis: {
-      host: 'localhost',
-      port: 6379
-    }
-  },
-  storage: {
-    mongo: 'mongodb://localhost:27017/messages',
-    size: 1024 * 1024 * 2 // size in byte for all channel
-  }
 };
 
 class Queue extends EventEmitter {

@@ -1,12 +1,11 @@
-import 'babel-polyfill';
 import should from 'should';
 import _ from 'lodash';
 import crypto from 'crypto';
 import urllib from 'urllib';
 import SocketIOClient from 'socket.io-client';
-import { config, debug, info } from '../src/utils.js';
-import Connector from '../src/connector.js';
-import Server from '../src/api.js';
+import { config, debug, info } from '../../src/utils.js';
+import Connector from '../../src/connector.js';
+import Server from '../../src/api.js';
 
 function getAuthedOpt(number) {
   let opts = {

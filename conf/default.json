@@ -1,0 +1,30 @@
+{
+  "logger": {
+    "level": "info"
+  },
+  "api": {
+    "host": "127.0.0.1",
+    "port": 3000
+  },
+  "queue": {
+    "publisher": {
+      "redis": { "host": "127.0.0.1", "port": 6379 }
+    },
+    "subscriber": {
+      "redis": { "host": "127.0.0.1", "port": 6379 }
+    },
+    "storage": {
+      "mongo": "mongodb://127.0.0.1:27017messages",
+      "size": 2097152 // byte
+    }
+  },
+  "connector": {
+    "host": "127.0.0.1",
+    "port": 3001,
+    "authKey": "secret key is here",
+    "authTimeout": 600000 // millisecond
+  },
+  "session": {
+    "redis": { "host": "127.0.0.1", "port": 6379 }
+  }
+}

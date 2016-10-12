@@ -1,11 +1,10 @@
-import 'babel-polyfill';
 import assert from 'assert';
 import should from 'should';
 import crypto from 'crypto';
 import co from 'co';
 import _ from 'lodash';
-import { config, logger, debug, info, error } from '../src/utils.js';
-import Broker from '../src/queue.js';
+import { config, logger, debug, info, error } from '../../src/utils.js';
+import Broker from '../../src/queue.js';
 
 
 describe('Broker connectivity tests.', function() {

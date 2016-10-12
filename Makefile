@@ -1,6 +1,7 @@
 SRC = $(wildcard src/*.js)
 LIB = $(SRC:src/%.js=lib/%.js)
-TESTS ?= $(shell ls -S `find test -type f -name "*.js" -print`)
+FUNCTESTS ?= $(shell ls -S `find test/functests -type f -name "*.js" -print`)
+UNITTESTS ?= $(shell ls -S `find test/unittests -type f -name "*.js" -print`)
 MODE ?= connector
 
 # unittest configs
@@ -16,6 +17,8 @@ reinstall:
 	@$(MAKE) install
 
 build: $(LIB)
+	@mkdir -p ./bin
+	@cp -f ./lib/index.js ./bin/xiucall-push
 
 lib/%.js: src/%.js .babelrc
 	mkdir -p $(@D)
@@ -28,19 +31,25 @@ test-cov:
 		--reporter $(REPORTER) \
 		--timeout $(TIMEOUT) \
 		$(MOCHA_OPTS) \
-		$(TESTS)
+		$(FUNCTESTS)
 		
-test: 
+test: test-unit test-func
+
+test-unit:
+
+test-func:
 	@NODE_ENV=test ./node_modules/.bin/mocha \
+	  -r ./test/entry.js \
 		--reporter $(REPORTER) \
 		--timeout $(TIMEOUT) \
 		$(MOCHA_OPTS) \
-		$(TESTS)
+		$(FUNCTESTS)
 
 clean:
 	@rm -rf $(LIB)
+	@rm -rf ./bin
 
 run: build
 	@node lib/index.js --mode $(MODE)
 
-.PHONY: test test-cov install reinstall clean run
+.PHONY: test test-unit test-func test-cov install reinstall clean run

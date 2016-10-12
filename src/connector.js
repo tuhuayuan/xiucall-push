@@ -16,7 +16,7 @@ class Connector extends EventEmitter {
   constructor(opts) {
     super();
     this.options = {};
-    _.assign(this.options, Connector.defaultConfigs, config.connector, opts);
+    _.assign(this.options, config.connector, opts);
     this.broker = new Broker();
     this.authKey = this.options.authKey;
     // The backend http server.
@@ -159,15 +159,6 @@ class Connector extends EventEmitter {
 }
 
 /**
- * default configs.
- */
-Connector.defaultConfigs = {
-  host: "localhost",
-  port: 8080,
-  authKey: 'nibabakey'
-};
-
-/**
  * Connector status.
  */
 Connector.status = {
@@ -177,7 +168,6 @@ Connector.status = {
   stopped: 'stopped'
 }
 
-
 /**
  * SessionManager for connector using redis.
  * @private 
@@ -186,7 +176,7 @@ class SessionManager extends EventEmitter {
   constructor(opts) {
     super();
     this.options = {};
-    _.assign(this.options, SessionManager.defaultConfigs, config.session, opts);
+    _.assign(this.options, config.session, opts);
     this.redisPub = new Redis(_.assign({}, this.options.redis, {
       lazyConnect: true
     }));
@@ -305,16 +295,5 @@ SessionManager.create = async function(opts) {
   });
   return ret;
 }
-
-/**
- * SessionManager default configs
- * redis must be master if using sentinel cluster.
- */
-SessionManager.defaultConfigs = {
-  redis: {
-    host: 'localhost',
-    port: 6379
-  }
-};
 
 export default Connector;

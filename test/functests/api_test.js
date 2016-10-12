@@ -1,10 +1,9 @@
-import 'babel-polyfill';
 import should from 'should';
 import urllib from 'urllib';
 import crypto from 'crypto';
-import { config, debug, info } from '../src/utils.js';
-import Broker from '../src/queue.js';
-import Server from '../src/api.js';
+import { config, debug, info } from '../../src/utils.js';
+import Broker from '../../src/queue.js';
+import Server from '../../src/api.js';
 
 
 describe('API http server tests.', function() {
