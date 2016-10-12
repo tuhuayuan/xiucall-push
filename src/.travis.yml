@@ -1,0 +1,17 @@
+language: node_js
+
+node_js:
+- "6"
+
+services:
+- mongodb
+- redis
+
+install:
+- make install
+- cp conf/default.json conf/test.json
+
+script: make test-cov
+
+after_success:
+- echo OK
