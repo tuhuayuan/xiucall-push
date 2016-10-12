@@ -42,6 +42,7 @@ jspm_packages
 
 # Compiled libs
 lib
+bin
 
 # exclude all config file except default config.
 conf/*
