@@ -79,7 +79,7 @@ class Broker extends EventEmitter {
     if (this.status === Broker.status.end ||
       this.status == Broker.status.wait ||
       this.status == Broker.status.closing) {
-      throw new Error(`Close failed. error status ${this.status}`);
+      return;
     }
     this._setStatus(Broker.status.closing);
     // FixMe: The ioredis connection quited but status still ready.
@@ -338,7 +338,7 @@ class Queue extends EventEmitter {
    */
   async close(dump = false) {
     if (this.status === Queue.status.end || this.status === Queue.status.closing) {
-      throw new Error('Queue is closing or closed.');
+      return;
     }
     if (this.status === Queue.status.peeking) {
       this._peekingReject('User close.');
