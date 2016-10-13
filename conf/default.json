@@ -14,15 +14,15 @@
       "redis": { "host": "127.0.0.1", "port": 6379 }
     },
     "storage": {
-      "mongo": "mongodb://127.0.0.1:27017messages",
-      "size": 2097152 
+      "mongo": "mongodb://127.0.0.1:27017/messages",
+      "size": 2097152
     }
   },
   "connector": {
     "host": "127.0.0.1",
     "port": 3001,
     "authKey": "secret key is here",
-    "authTimeout": 600000 
+    "authTimeout": 600000
   },
   "session": {
     "redis": { "host": "127.0.0.1", "port": 6379 }
