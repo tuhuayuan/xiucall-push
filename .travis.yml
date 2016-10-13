@@ -25,6 +25,6 @@ install:
   - cp conf/default.json conf/test.json
 script: 
   - sudo service mongod status
-  - make test
+  - make test-cov
 after_success:
-  - echo OK
+  - npm i codecov && codecov
