@@ -10,15 +10,13 @@ MOCHA_OPTS = --compilers js:babel-register -s 1000
 TIMEOUT = 5000
 REPORTER = spec
 
-install:
+pre-build:
 	npm $(NPM_REGISTRY) install
 
 uninstall:
 	@rm -rf ./node_modules
 
-build: $(LIB)
-	@mkdir -p ./bin
-	@cp -f ./lib/index.js ./bin/xiucall-push
+build: pre-build $(LIB)
 
 lib/%.js: src/%.js .babelrc
 	mkdir -p $(@D)
@@ -52,9 +50,8 @@ test-func:
 
 clean:
 	@rm -rf $(LIB)
-	@rm -rf ./bin/*
 
 run: build
 	@node lib/index.js --mode $(MODE)
 
-.PHONY: test test-unit test-func test-cov install reinstall clean run
+.PHONY: test test-unit test-func test-cov pre-build uninstall clean run

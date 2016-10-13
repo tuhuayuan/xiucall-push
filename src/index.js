@@ -1,5 +1,3 @@
-#!/usr/bin/env sh
-
 import 'babel-polyfill';
 import Connector from './connector.js';
 import Server from './api.js';
