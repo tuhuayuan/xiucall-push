@@ -3,6 +3,7 @@ LIB = $(SRC:src/%.js=lib/%.js)
 FUNCTESTS ?= $(shell ls -S `find test/functests -type f -name "*.js" -print`)
 UNITTESTS ?= $(shell ls -S `find test/unittests -type f -name "*.js" -print`)
 MODE ?= connector
+NPM_REGISTRY ?= "--registry=http://registry.npm.taobao.org"
 
 # unittest configs
 MOCHA_OPTS = --compilers js:babel-register -s 1000
@@ -10,7 +11,7 @@ TIMEOUT = 5000
 REPORTER = spec
 
 install:
-	npm --registry=https://registry.npm.taobao.org install
+	npm $(NPM_REGISTRY) install
 
 uninstall:
 	@rm -rf ./node_modules

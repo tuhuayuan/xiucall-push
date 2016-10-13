@@ -13,8 +13,8 @@ services:
   - mongodb
   - redis
 install:
-  - make install
+  - make install NPM_REGISTRY="" 
   - cp conf/default.json conf/test.json
-script: make test-cov
+script: make test
 after_success:
   - echo OK
