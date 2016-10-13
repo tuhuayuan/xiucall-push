@@ -56,7 +56,7 @@ describe('Broker connectivity tests.', function() {
     brk.once('connect', () => {
       brk.close().catch(err => {
         done(err);
-      });;
+      });
     });
     brk.connect().catch(err => {
       done(err);
@@ -85,6 +85,15 @@ describe('Queue build tests.', function() {
     }).catch(err => {
       done(err);
     });
+  });
+  afterEach(function(done) {
+    this.broker.close()
+      .then(() => {
+        done();
+      })
+      .catch(err => {
+        done(err);
+      });
   });
   it('Test get #Publish queue with random id and autoCreate=true', function(done) {
     let randomID = crypto.randomBytes(6).toString('hex');
