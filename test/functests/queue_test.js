@@ -80,7 +80,6 @@ describe('Queue build tests.', function() {
   beforeEach(function(done) {
     this.broker = new Broker();
     this.broker.connect().then(val => {
-      should.exist(val);
       done();
     }).catch(err => {
       done(err);
