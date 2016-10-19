@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import co from 'co';
 import Redis from 'ioredis';
 import crypto from 'crypto';
 import http from 'http';
@@ -17,14 +16,13 @@ class Connector extends EventEmitter {
     super();
     this.options = {};
     _.assign(this.options, config.connector, opts);
+
     this.broker = new Broker();
-    this.authKey = this.options.authKey;
-    // The backend http server.
     this.server = http.createServer();
     this.socketio = new SocketIO(this.server, {
       transports: ['websocket']
     });
-    // The socketio middleware
+
     this.socketio.use(_.bind(this._authHandler, this));
     this.socketio.use(_.bind(this._initHandler, this));
     this.socketio.on('connection', _.bind(this._connectHandler, this));
@@ -36,7 +34,7 @@ class Connector extends EventEmitter {
    */
   async start() {
     await this.broker.connect();
-    this.session = await SessionManager.create({});
+    this.session = await SessionManager.create(this.options);
     this.session.on('kicked', _.bind(this._kickedHandler, this));
     this.server.listen(this.options.port, this.options.host);
   }
@@ -102,7 +100,7 @@ class Connector extends EventEmitter {
     }).then(val => {
       socket.sessionID = val;
       socket.sessionManager = this.session;
-      next();
+      return next();
     }).catch(err => {
       socket.disconnect();
     });
@@ -114,7 +112,7 @@ class Connector extends EventEmitter {
    * @private
    */
   _connectHandler(socket) {
-    socket.on('commit', co.wrap(this._commitHandler));
+    socket.on('commit', this._commitHandler);
     socket.emit('message', []);
   }
 
@@ -123,15 +121,19 @@ class Connector extends EventEmitter {
    * Bind#socket
    * @private
    */
-  *
   _commitHandler(count) {
-    const socket = this;
-    let committing = _.toInteger(count) <= 0 ? 0 : 1;
-    if (committing != 0) {
-      yield socket.queue.commit();
+    let socket = this;
+    let commit = Promise.resolve();
+    if (_.toInteger(count) > 0) {
+      commit = socket.queue.commit();
     }
-    let msg = yield socket.queue.peek();
-    socket.emit('message', [msg.payload]);
+    commit.then(() => {
+      return socket.queue.peek();
+    }).then(msg => {
+      socket.emit('message', [msg.payload]);
+    }).catch(err => {
+      debug(`${socket.sessionID} peek error ${err}`);
+    });
   }
 
   /**
@@ -141,10 +143,14 @@ class Connector extends EventEmitter {
    */
   _disconnectHandler() {
     if (this.queue) {
-      this.queue.close();
+      this.queue.close().catch(err => {
+        info(`Queue close error: ${err}`);
+      });
     }
     if (this.sessionManager) {
-      this.sessionManager.remove(this.sessionID);
+      this.sessionManager.remove(this.sessionID).catch(err => {
+        info(`Session manager remove error: ${err}`);
+      });
     }
   }
 
@@ -203,12 +209,15 @@ class SessionManager extends EventEmitter {
    * @public
    */
   async close() {
-    await Promise.all([
-      this.redisPub.quit(),
-      this.redisSub.quit()
-    ]).catch(err => {
-      throw new Error(`Session manager disconnect error: ${err}`);
-    });
+    await this.redisSub.punsubscribe()
+      .then(() => {
+        Promise.all([
+          this.redisPub.quit(),
+          this.redisSub.quit()
+        ])
+      }).catch(err => {
+        throw new Error(`Session manager disconnect error: ${err}`);
+      });
   }
 
   /**
@@ -258,7 +267,6 @@ class SessionManager extends EventEmitter {
    * @private
    */
   _onMessage(pattern, sessionID, token) {
-
     const [prefix, id, randomID] = _.split(sessionID, '_', 3);
     if (prefix !== 'session') {
       return;

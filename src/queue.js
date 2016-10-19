@@ -216,7 +216,7 @@ class Queue extends EventEmitter {
       });
       this.sub.on('message', (channel, message) => {
         if (channel === this.messageChannel && this.status === Queue.status.peeking) {
-          this._peekingFulfill(message);
+          this.__peekingHandle(true);
         }
       });
       await this.sub.subscribe(this.messageChannel);
@@ -246,7 +246,7 @@ class Queue extends EventEmitter {
       throw new Error(`Push on error status ${this.status}`);
     }
     if (!_.isPlainObject(obj)) {
-      throw new Error('Error push object type.');
+      throw new Error('Error push object type.' + typeof obj);
     }
     await this.store.insertOne({
       payload: obj,
@@ -279,11 +279,8 @@ class Queue extends EventEmitter {
     // Get message direct from store or wait message notify.
     while (true) {
       let signal = new Promise((fulfill, reject) => {
-        // signal hook.
-        this._peekingFulfill = fulfill;
-        this._peekingReject = reject;
-      }).catch(err => {
-        throw new Error(`Peeking canceled err: ${err}`);
+        // signal handle, never rejected.
+        this.__peekingHandle = fulfill;
       });
       let message = await this.store.findOne({
         acked: { $bitsAnyClear: [this.channel] }
@@ -292,14 +289,16 @@ class Queue extends EventEmitter {
         this._setStatus(Queue.status.ready);
         return message;
       } else {
-        await signal;
+        let ok = await signal;
+        if (!ok) {
+          throw new Error('User cancelled.');
+        }
       }
     }
   }
 
   /**
    * Remove a message from the head of the queue.
-   * 
    * Return true: message commited, false: no change
    * @public
    */
@@ -320,7 +319,7 @@ class Queue extends EventEmitter {
         acked: { or: 1 << this.channel }
       }
     }).catch(err => {
-      throw new Error(`Commit error: ${err}`);
+      throw new Error(`Commit data error: ${err}`);
     });
 
     if (result.ok === 1) {
@@ -341,7 +340,7 @@ class Queue extends EventEmitter {
       return;
     }
     if (this.status === Queue.status.peeking) {
-      this._peekingReject('User close.');
+      this.__peekingHandle(false);
     }
     this._setStatus(Queue.status.closing);
 

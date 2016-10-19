@@ -10,7 +10,8 @@ import Server from '../../src/api.js';
 function getAuthedOpt(number) {
   let opts = {
     extraHeaders: {},
-    reconnection: false
+    reconnection: false,
+    transports: ['websocket'],
   };
   let timestamp = new Date().getTime();
   let hasher = crypto.createHash("md5");
@@ -21,27 +22,21 @@ function getAuthedOpt(number) {
 }
 
 describe('Connector connectivity tests.', function() {
-  before(function(done) {
+  before(function() {
     this.connector = new Connector();
     this.connectorOpts = {
       reconnection: false,
       transports: ['websocket'],
     };
     this.connectorUrl = `http://${this.connector.options.host}:${this.connector.options.port}`;
-    this.authKey = config.connector.authKey;
-    // Start connector instance.
-    this.connector.start().then(() => {
-      done();
-    }).catch(err => {
-      done(err);
+    return this.connector.start().catch(err => {
+      should.ifError(err);
     });
   });
 
-  after(function(done) {
-    this.connector.shutdown().then(() => {
-      done();
-    }).catch(err => {
-      done(err);
+  after(function() {
+    return this.connector.shutdown().catch(err => {
+      should.ifError(err);
     });
   });
 
@@ -50,175 +45,129 @@ describe('Connector connectivity tests.', function() {
     socket.on('disconnect', () => {
       done();
     });
-    socket.on('message', msg => {
-      debug(`message: ${msg}`);
-    });
-    socket.on('connect', () => {
-      debug(`connect`);
-    });
   });
 
-  it('Test connector with auth info should get first message.', function(done) {
+  it('Test after connected an empty message should be recevied.', function(done) {
     let authHead = _.assign({}, this.connectorOpts, getAuthedOpt(crypto.randomBytes(6).toString('hex')));
     let socket = new SocketIOClient(this.connectorUrl, authHead);
     socket.on('message', msg => {
-      should.exist(msg);
+      msg.should.be.empty();
       done();
     })
   });
 });
 
-describe('Connector and Api collaborate tests.', function() {
-  before(function(done) {
-    // socketio options.
-    this.authedID = crypto.randomBytes(6).toString('hex');
-    this.socketOpts = _.assign({
-      reconnection: false,
-      transports: ['websocket'],
-    }, getAuthedOpt(this.authedID));
-    // connector
+describe('Connector and API server tests.', function() {
+  before(function() {
     this.connector = new Connector();
     this.socketUrl = `http://${this.connector.options.host}:${this.connector.options.port}`;
-    // api server
+
     this.api = new Server();
     this.apiUrl = `http://${this.api.options.host}:${this.api.options.port}`;
-    Promise.all([this.connector.start(), this.api.start()])
-      .then(val => {
-        done();
-      }).catch(err => {
-        done(err);
+
+    return Promise.all([this.connector.start(), this.api.start()])
+      .catch(err => {
+        should.ifError(err);
       })
   });
 
-  after(function(done) {
-    this.api.shutdown().then(() => {
-      done();
-    }).catch(err => {
-      done(err);
-    })
-  });
-
-  it('A null message should sent after connected.', function(done) {
-    const client = new SocketIOClient(this.socketUrl, this.socketOpts);
-    client.on('disconnect', () => {
-      done();
-    });
-    client.on('message', msg => {
-      should(msg).be.empty();
-      client.disconnect();
-    });
+  after(function() {
+    return Promise.all([this.api.shutdown(), this.connector.shutdown()])
+      .catch(err => {
+        should.ifError(err);
+      });
   });
 
   it('Sent commit and wait for incomming message.', function(done) {
-    const client = new SocketIOClient(this.socketUrl, this.socketOpts);
-    client.on('disconnect', () => {
-      done();
-    });
+    let clientID = crypto.randomBytes(6).toString('hex');
+    let client = new SocketIOClient(this.socketUrl, getAuthedOpt(clientID));
     client.once('message', msg => {
-      should(msg).be.empty();
+      msg.should.be.empty();
       client.once('message', msg => {
-        should(msg).not.be.empty();
-        should(msg[0]).have.property('data');
-        should(msg[0].data).have.property('index').and.equal(0);
+        should.equal(msg[0].data.index, 0);
         client.emit('commit', msg.length);
-        client.disconnect();
+        done();
       });
-      client.emit('commit', 0);
+      client.emit('commit', msg.length);
       urllib.request(this.apiUrl + '/push', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          content: JSON.stringify({
+          contentType: 'json',
+          data: {
             'send_id': 'xiuhua_server',
             'channel': ['test'],
-            'recv_id': [this.authedID],
+            'recv_id': [clientID],
             'data': {
               'index': 0,
-              'from': 'Test: Sent commit and wait for incomming message.'
             }
-          })
+          }
         },
         (err, data, res) => {
-          (res.status).should.equal(200);
+          should.equal(res.status, 200);
         });
     });
   });
 
-  it('Test concurrency of connector and api.', function(done) {
+  it('Test api push and connector commit at same time.', function(done) {
     let sum = 0;
     let count = 0;
 
-    const clientIDs = _.map(_.range(0, 20), () => {
+    let clientIDs = _.map(_.range(0, 20), () => {
       return crypto.randomBytes(6).toString('hex');
     });
-    const clients = _.map(clientIDs, val => {
-      return new SocketIOClient(this.socketUrl,
-        _.assign({}, this.socketOpts, getAuthedOpt(val), { reconnection: true }));
-    });
-    const pushWorkers = _.map(clientIDs, (id, index) => {
-      return urllib.request(this.apiUrl + '/push?autoCreate=1', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        content: JSON.stringify({
-          'send_id': 'xiuhua_server',
-          'channel': ['test'],
-          'recv_id': [id],
-          'data': {
-            'index': index + 1,
-            'from': 'Test: Test concurrency.'
-          }
-        })
-      });
-    });
-    Promise.all(pushWorkers).catch(err => {
-      done(err);
-    });
-    _.forEach(clients, val => {
-      val.on('message', msg => {
-        val.emit('commit', msg.length);
+    _.map(clientIDs, clientID => {
+      let client = new SocketIOClient(this.socketUrl, getAuthedOpt(clientID));
+      client.on('message', msg => {
+        client.emit('commit', msg.length);
         if (msg.length > 0) {
           sum += msg[0].data.index;
           count += 1;
           if (count === 20) {
-            should(sum).equal(210);
+            should.equal(sum, 210);
             done();
           }
         }
       });
+      return client;
     });
-
+    let pushs = _.map(clientIDs, (clientID, index) => {
+      return urllib.request(this.apiUrl + '/push?autoCreate=1', {
+        method: 'POST',
+        contentType: 'json',
+        data: {
+          'send_id': 'xiuhua_server',
+          'channel': ['test'],
+          'recv_id': [clientID],
+          'data': {
+            'index': index + 1,
+          }
+        }
+      });
+    });
+    Promise.all(pushs).catch(err => {
+      done(err);
+    });
   });
 
   it('Test offline messages.', function(done) {
-    const pushWorkers = new Array();
-    for (let i = 1; i <= 100; i++) {
-      pushWorkers.push(urllib.request(this.apiUrl + '/push', {
+    let clientID = crypto.randomBytes(6).toString('hex');
+    let pushs = _.map(_.range(0, 100), i => {
+      return urllib.request(this.apiUrl + '/push?autoCreate=1', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        content: JSON.stringify({
+        contentType: 'json',
+        data: {
           'send_id': 'xiuhua_server',
           'channel': ['test'],
-          'recv_id': [this.authedID],
+          'recv_id': [clientID],
           'data': {
-            'index': i,
-            'from': 'Test: Test offline messages.'
+            'index': i + 1
           }
-        })
-      }));
-    }
-    Promise.all(pushWorkers).then(() => {
-      const client = new SocketIOClient(this.socketUrl, this.socketOpts);
+        }
+      });
+    });
+    Promise.all(pushs).then(() => {
+      const client = new SocketIOClient(this.socketUrl, getAuthedOpt(clientID));
       let sum = 0;
       let count = 0;
-
-      client.on('disconnect', () => {
-        done();
-      });
       client.on('message', msg => {
         client.emit('commit', msg.length);
         if (msg.length > 0) {
@@ -226,29 +175,25 @@ describe('Connector and Api collaborate tests.', function() {
           count += 1;
           if (count === 100) {
             should(sum).equal(5050);
-            client.disconnect();
+            done();
           }
         }
       });
     }).catch(err => {
       done(err);
     });
-
   });
 
   it('Test broadcast messages.', function(done) {
-    const clientIDs = _.map(_.range(0, 20), () => {
+    let clientIDs = _.map(_.range(0, 20), () => {
       return crypto.randomBytes(6).toString('hex');
-    });
-    const clients = _.map(clientIDs, val => {
-      return new SocketIOClient(this.socketUrl,
-        _.assign({}, this.socketOpts, getAuthedOpt(val), { reconnection: true }));
     });
     let sum = 0;
     let count = 0;
-    _.forEach(clients, val => {;
-      val.on('message', msg => {
-        val.emit('commit', msg.length);
+    _.map(clientIDs, val => {
+      let client = new SocketIOClient(this.socketUrl, getAuthedOpt(val));
+      client.on('message', msg => {
+        client.emit('commit', msg.length);
         if (msg.length > 0) {
           sum += msg[0].data.index;
           count += 1;
@@ -261,30 +206,22 @@ describe('Connector and Api collaborate tests.', function() {
     });
     urllib.request(this.apiUrl + '/push?autoCreate=1', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      content: JSON.stringify({
+      contentType: 'json',
+      data: {
         'send_id': 'xiuhua_server',
         'channel': ['test'],
         'recv_id': clientIDs,
         'data': {
           'index': 1,
-          'from': 'Test:  broadcast messages.'
         }
-      })
-    })
+      }
+    });
   });
 });
 
 describe('Session manager tests.', function() {
-  before(function(done) {
-    // socketio options.
+  before(function() {
     this.authedID = crypto.randomBytes(6).toString('hex');
-    this.socketOpts = _.assign({
-      reconnection: false,
-      transports: ['websocket'],
-    }, getAuthedOpt(this.authedID));
     this.connectorA = new Connector({
       port: 6001
     });
@@ -293,62 +230,48 @@ describe('Session manager tests.', function() {
     });
     this.socketAUrl = `http://${this.connectorA.options.host}:${this.connectorA.options.port}`;
     this.socketBUrl = `http://${this.connectorB.options.host}:${this.connectorB.options.port}`;
-    Promise.all([this.connectorA.start(), this.connectorB.start()])
-      .then(() => {
-        done();
-      }).catch(err => {
-        done(err);
-      });
+    return Promise.all([this.connectorA.start(), this.connectorB.start()]).catch(err => {
+      should.ifError(err);
+    });
   });
 
-  after(function(done) {
-    Promise.all([this.connectorA.shutdown(), this.connectorB.shutdown()])
-      .then(() => {
-        done();
-      }).catch(err => {
-        done(err);
-      });
+  after(function() {
+    return Promise.all([this.connectorA.shutdown(), this.connectorB.shutdown()]).catch(err => {
+      should.ifError(err);
+    });
   });
 
   it('Local session B should kickout session A.', function(done) {
-    let socketA = new SocketIOClient(this.socketAUrl, this.socketOpts);
+    let socketA = new SocketIOClient(this.socketAUrl, getAuthedOpt(this.authedID));
     socketA.once('disconnect', () => {
       done();
     });
     socketA.once('connect', () => {
-      let socketB = new SocketIOClient(this.socketAUrl, this.socketOpts);
+      let socketB = new SocketIOClient(this.socketAUrl, getAuthedOpt(this.authedID));
     })
   });
 
   it('In different connector session B should kickout session A', function(done) {
-    let socketA = new SocketIOClient(this.socketAUrl, this.socketOpts);
+    let socketA = new SocketIOClient(this.socketAUrl, getAuthedOpt(this.authedID));
     socketA.once('disconnect', () => {
       done();
     });
     socketA.once('connect', () => {
-      let socketB = new SocketIOClient(this.socketBUrl, this.socketOpts);
+      let socketB = new SocketIOClient(this.socketBUrl, getAuthedOpt(this.authedID));
     });
   });
 
   it('A lot of same session should remain only one.', function(done) {
-    let sum = 20;
     let count = 0;
     _.map(_.range(0, 20), val => {
       let url = val % 2 == 0 ? this.socketAUrl : this.socketBUrl;
-      let socket = new SocketIOClient(url, this.socketOpts);
+      let socket = new SocketIOClient(url, getAuthedOpt(this.authedID));
       socket.on('disconnect', () => {
         count += 1;
-
-        if (count === 19) {
-          let lastSocket = new SocketIOClient(this.socketAUrl, this.socketOpts);
-          lastSocket.on('disconnect', () => {
-            done();
-          });
-          lastSocket.on('connect', () => {
-            lastSocket.disconnect();
-          });
+        if (count == 19) {
+          done();
         }
       });
     });
-  })
+  });
 });

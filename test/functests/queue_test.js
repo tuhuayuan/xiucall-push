@@ -1,327 +1,231 @@
 import should from 'should';
 import crypto from 'crypto';
-import co from 'co';
 import _ from 'lodash';
 import { config, logger, debug, info, error } from '../../src/utils.js';
 import Broker from '../../src/queue.js';
 
-
 describe('Broker connectivity tests.', function() {
-  it('Test new broker with correct config.', function() {
-    let brk = new Broker();
-    should.exist(brk);
-  });
   it('Test broker connecting.', function(done) {
-    let brk = new Broker();
-    brk.on('connecting', () => {
+    let broker = new Broker();
+    broker.on('connecting', () => {
       done();
     });
-    brk.connect().catch(err => {
+    broker.connect().catch(err => {
       done(err);
     });
   });
+
   it('Test broker connect.', function(done) {
-    let brk = new Broker();
-    brk.on('connect', () => {
+    let broker = new Broker();
+    broker.on('connect', () => {
       done();
     });
-    brk.connect().catch(err => {
+    broker.connect().catch(err => {
       done(err);
     });
   });
+
   it('Test broker disconnect.', function(done) {
-    let brk = new Broker();
-    brk.on('end', () => {
+    let broker = new Broker();
+    broker.on('end', () => {
       done();
     })
-    brk.on('connect', () => {
-      brk.close().catch(err => {
+    broker.on('connect', () => {
+      broker.close().catch(err => {
         done(err);
       });;
     });
-    brk.connect().catch(err => {
+    broker.connect().catch(err => {
       done(err);
     });
   });
-  it('Test broker reopen.', function(done) {
-    let brk = new Broker();
-    brk.on('end', () => {
-      brk.once('connect', () => {
+
+  it('Test broker open after close.', function(done) {
+    let broker = new Broker();
+    broker.on('end', () => {
+      broker.once('connect', () => {
         done();
       });
-      brk.connect().catch(err => {
+      broker.connect().catch(err => {
         done(err);
       });
     })
-    brk.once('connect', () => {
-      brk.close().catch(err => {
+    broker.once('connect', () => {
+      broker.close().catch(err => {
         done(err);
       });
     });
-    brk.connect().catch(err => {
+    broker.connect().catch(err => {
       done(err);
     });
   });
-  it('Test broker repeat connect.', function(done) {
-    let brk = new Broker();
-    brk.on('connect', () => {
-      brk.connect().catch(err => {
+
+  it('Test broker open connect in wrong status.', function(done) {
+    let broker = new Broker();
+    broker.on('connect', () => {
+      broker.connect().catch(err => {
         should.exist(err);
         done();
       });
     });
-    brk.connect().catch(err => {
+    broker.connect().catch(err => {
       done(err);
     });
   });
 });
 
 describe('Queue build tests.', function() {
-  beforeEach(function(done) {
+  beforeEach(function() {
     this.broker = new Broker();
-    this.broker.connect().then(val => {
-      done();
-    }).catch(err => {
-      done(err);
+    return this.broker.connect().catch(err => {
+      should.ifError(err);
     });
   });
-  afterEach(function(done) {
-    this.broker.close()
-      .then(() => {
-        done();
-      })
-      .catch(err => {
-        done(err);
-      });
+
+  afterEach(function() {
+    return this.broker.close().catch(err => {
+      should.ifError(err);
+    });
   });
-  it('Test get #Publish queue with random id and autoCreate=true', function(done) {
+
+  it('Test get a publish queue with random id and autoCreate=true', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'pub',
       autoCreate: true
-    }).then(function(val) {
-      done();
     }).catch(function(err) {
-      done(err);
+      shoudl.ifError(err);
     });
   });
-  it('Test get new #Publish and push a message.', function(done) {
+
+  it('Test get a publish queue and push a message.', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'pub',
       autoCreate: true
-    }).then(function(val) {
-      should.exist(val);
-      val.push({
+    }).then(queue => {
+      return queue.push({
         name: 'tuhuayuan',
         attrs: {
           password: 'password',
           roles: ['admin', 'user']
         }
-      }).then(val => {
-        (val).should.be.false();
-        done();
-      }).catch(err => {
-        done(err);
-      });
-    }).catch(function(err) {
-      done(err);
-    });
-  });
-  it('Test queue create -> push -> peek.', function(done) {
-    let randomID = crypto.randomBytes(6).toString('hex');
-    let message = {
-      from: "Test queue create -> push -> peek."
-    };
-    this.broker.get(randomID, {
-      mode: 'sub',
-      autoCreate: true
-    }).then(function(val) {
-      val.push(message).then(res => {
-        (res).should.be.true();
-        return val.peek();
-      }).then(res => {
-        (res).should.be.an.instanceOf(Object).and.have.property('payload');
-        (res.payload).should.deepEqual(message);
-        done();
-      }).catch(err => {
-        done(err);
       });
     }).catch(err => {
-      done(err);
+      should.ifError(err);
     });
   });
-  it('Test queue create -> peek -> push.', function(done) {
+
+  it('Test queue create -> push -> peek -> commit.', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
     let message = {
-      from: 'Test queue create -> peek -> push.'
-    };
-    this.broker.get(randomID, {
-      mode: 'sub',
-      autoCreate: true
-    }).then(function(val) {
-      process.nextTick(() => {
-        val.push(message).then(res => {
-          (res).should.be.true();
-        }).catch(err => {
-          done(err);
-        });
-      });
-      return val.peek();
-    }).then(res => {
-      (res).should.be.an.instanceOf(Object).and.have.property('payload');
-      (res.payload).should.deepEqual(message);
-      done();
-    }).catch(err => {
-      done(err);
-    });
-  });
-  it('Test queue create -> push -> peek -> commit.', function(done) {
-    let randomID = crypto.randomBytes(6).toString('hex');
-    let message = {
-      from: 'Test queue create -> push -> peek -> commit'
+      from: "Test queue create -> push -> peek -> commit."
     };
     let queue;
-    this.broker.get(randomID, {
-      mode: 'sub',
-      autoCreate: true
-    }).then(function(val) {
-      queue = val;
-      return queue.push(message);
-    }).then(res => {
-      return queue.peek();
-    }).then(res => {
-      return queue.commit();
-    }).then(res => {
-      (res).should.be.true();
-      done();
-    }).catch(err => {
-      done(err);
-    });
-  });
-  it('Test queue create -> peek -> push -> commit.', function(done) {
-    let randomID = crypto.randomBytes(6).toString('hex');
-    let message = {
-      from: 'Test queue create -> peek -> push -> commit'
-    };
-    let queue;
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'sub',
       autoCreate: true
     }).then(val => {
       queue = val;
+      return queue.push(message);
+    }).then(val => {
+      return queue.peek();
+    }).then(val => {
+      should.deepEqual(val.payload, message);
+      return queue.commit();
+    }).catch(err => {
+      should.ifError(err);
+    });
+  });
+
+  it('Test queue create -> peek -> push -> commit.', function() {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let message = {
+      from: 'Test queue create -> peek -> push -> commit.'
+    };
+    let queue;
+    return this.broker.get(randomID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(function(val) {
+      queue = val;
       process.nextTick(() => {
         queue.push(message).catch(err => {
-          done(err);
+          should.ifError(err);
         });
       });
       return queue.peek();
-    }).then(res => {
+    }).then(val => {
+      should.deepEqual(val.payload, message);
       return queue.commit();
-    }).then(res => {
-      (res).should.be.true();
-      done();
     }).catch(err => {
-      done(err);
+      should.ifError(err)
     });
   });
-  it('Test queue create -> close.', function(done) {
+
+  it('Test queue create -> close.', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
     let queue;
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'pub',
       autoCreate: true
     }).then(val => {
       queue = val;
       return queue.close();
-    }).then(() => {
-      done();
     }).catch(err => {
-      done(err);
+      should.ifError(err);
     });
   });
-  it('Test queue create -> peeking -> close.', function(done) {
+
+  it('Test queue create -> peeking -> close.', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
     let queue;
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'sub',
       autoCreate: true
     }).then(val => {
       queue = val;
       process.nextTick(() => {
         queue.close().catch(err => {
-          done(err);
+          should.ifError(err);
         });
       });
-      queue.peek().catch(err => {
-        should.exist(err);
-        done();
+      return queue.peek().catch(err => {
+        should.AssertionError(err);
       });
     }).catch(err => {
-      done(err);
+      should.ifError(err);
     });
   });
-  it('Test queue create -> peeking -> Broker::close -> close.', function(done) {
+
+  it('Test queue create -> peeking -> Broker::close -> close.', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
     let queue;
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'sub',
       autoCreate: true
     }).then(val => {
       queue = val;
       process.nextTick(() => {
         this.broker.close().catch(err => {
-          done(err);
+          should.ifError(err);
         });
       });
       queue.peek().catch(err => {
-        done();
+        should.AssertionError(err);
       });
     }).catch(err => {
-      done(err);
-    });
-  });
-  it('Test queue create -> push -> close -> get -> peeking -> commit.', function(done) {
-    let randomID = crypto.randomBytes(6).toString('hex');
-    let message = {
-      from: 'Test queue create -> push -> close -> get -> peeking -> commit.'
-    };
-    let queue;
-    this.broker.get(randomID, {
-      mode: 'pub',
-      autoCreate: true
-    }).then(val => {
-      queue = val;
-      return queue.push(message);
-    }).then(val => {
-      return queue.close();
-    }).then(val => {
-      return this.broker.get(randomID, {
-        mode: 'sub',
-        autoCreate: false
-      });
-    }).then(val => {
-      queue = val;
-      return queue.peek();
-    }).then(val => {
-      (val).should.be.an.instanceOf(Object).and.have.property('payload');
-      (val.payload).should.deepEqual(message);
-      return queue.commit();
-    }).then(val => {
-      (val).should.be.true();
-      done();
-    }).catch(err => {
-      done(err);
+      should.ifError(err);
     });
   });
 
-  it('Test queue create -> push -> close(dump).', function(done) {
+  it('Test queue create -> push -> close(dump).', function() {
     let randomID = crypto.randomBytes(6).toString('hex');
     let message = {
       from: 'Test queue create -> push -> close(dump).'
     };
     let queue;
-    this.broker.get(randomID, {
+    return this.broker.get(randomID, {
       mode: 'pub',
       autoCreate: true
     }).then(val => {
@@ -333,269 +237,178 @@ describe('Queue build tests.', function() {
       return this.broker.get(randomID, {
         mode: 'sub',
         autoCreate: false
+      }).catch(err => {
+        should.AssertionError(err);
       });
     }).catch(err => {
-      done();
+      should.ifError(err);
     });
   });
 });
 
 describe('Queue message sequence.', function() {
-  beforeEach(function(done) {
+  beforeEach(function() {
     this.broker = new Broker();
+    this.messages = _.map(_.range(0, 100), i => {
+      return {
+        index: i + 1,
+        name: 'arithmetic sequence 1 to 100',
+        test: 'Queue message sequence.'
+      }
+    });
     let randomID = crypto.randomBytes(6).toString('hex');
-    this.messages = new Array(101);
-    for (let i = 1; i <= 100; i++) {
-      this.messages[i] = {
-        index: i,
-        padding: 'arithmetic sequence 1 to 100'
-      };
-    }
-    this.broker.connect().then(val => {
+    return this.broker.connect().then(() => {
       return this.broker.get(randomID, {
         mode: 'sub',
         autoCreate: true
       });
     }).then(val => {
       this.queue = val;
-      done();
     }).catch(err => {
-      done(err);
+      should.ifError(err);
     });
   });
-  afterEach(function(done) {
-    let sum = 0;
-    let count = 0;
-    let queue = this.queue;
-    co(function*() {
-      for (let i = 1; i <= 100; i++) {
-        let message = yield queue.peek();
-        count++;
-        sum += message.payload.index;
-        if (count == 100) {
-          (sum).should.equal(5050);
-          done();
-        }
-        yield queue.commit();
-      }
-    }).catch(err => {
-      done(err);
-    })
+
+  afterEach(function() {
+    return this.broker.close().catch(err => {
+      shoudl.ifError(err);
+    });
   });
-  it('Test messages from 1 to 100 arithmetic sequence.', function(done) {
-    let messages = this.messages;
-    let queue = this.queue;
-    co(function*() {
-      for (let msg of messages) {
-        if (!msg) {
-          continue;
-        }
-        yield queue.push(msg);
-      }
-    }).catch(err => {
-      done(err);
-    })
-    done();
+
+  it('Test messages from 1 to 100 arithmetic sequence one by one.', function() {
+    return _.reduce(this.messages, (m, n) => {
+      return m.then(() => {
+        return this.queue.push(n)
+      }).then(() => {
+        return this.queue.peek();
+      }).then(val => {
+        should.equal(val.payload.index, n.index);
+        return this.queue.commit();
+      });
+    }, Promise.resolve()).catch(err => {
+      should.ifError(err);
+    });
   });
-  it('Test concurrent messages from 1 to 100 arithmetic sequence.', function(done) {
-    let messages = this.messages;
-    let queue = this.queue;
-    let allPush = new Array();
-    co(function*() {
-      for (let msg of messages) {
-        if (!msg) {
-          continue;
-        }
-        allPush.push(queue.push(msg));
-      }
-      yield Promise.all(allPush);
-      done();
-    }).catch(err => {
-      done(err);
-    })
+
+  it('Test messages from 1 to 100 arithmetic sequence in concurrence.', function() {
+    let pubs = _.map(this.messages, msg => {
+      return this.queue.push(msg);
+    });
+    let sub = _.reduce(_.range(0, this.messages.length - 1), (m, n) => {
+      return m.then(val => {
+        return Promise.all([this.queue.commit(), val[1] + val[0].payload.index]);
+      }).then(val => {
+        return Promise.all([this.queue.peek(), val[1]]);
+      });
+    }, Promise.all([this.queue.peek(), 0])).then(result => {
+      should.equal(result[0].payload.index + result[1], 5050);
+    });
+    return Promise.all(_.concat(pubs, sub)).catch(err => {
+      should.ifError(err);
+    });
   });
 });
 
-describe('Two brokers operate on same message queue from 1 to 100 arithmetic sequence.', function() {
-  beforeEach(function(done) {
+describe('Two brokers tests.', function() {
+  beforeEach(function() {
     this.brokerA = new Broker();
     this.brokerB = new Broker();
     this.queueID = crypto.randomBytes(6).toString('hex');
-    this.messages = new Array(101);
-    for (let i = 1; i <= 100; i++) {
-      this.messages[i] = {
-        index: i,
-        padding: 'arithmetic sequence 1 to 100'
-      };
-    }
-    Promise.all([this.brokerA.connect(), this.brokerB.connect()]).then(val => {
-      done();
-    }).catch(err => {
-      done(err);
-    })
+    this.messages = _.map(_.range(0, 100), i => {
+      return {
+        index: i + 1,
+        name: 'arithmetic sequence 1 to 100',
+        test: 'Two brokers operate on same message queue from 1 to 100 arithmetic sequence.'
+      }
+    });
+    return Promise.all([this.brokerA.connect(), this.brokerB.connect()])
+      .catch(err => {
+        should.ifError(err);
+      });
   });
 
-  afterEach(function(done) {
-    Promise.all([this.brokerA.close(), this.brokerB.close()]).then(val => {
-      done();
-    }).catch(err => {
-      done(err);
+  afterEach(function() {
+    return Promise.all([this.brokerA.close(), this.brokerB.close()])
+      .catch(err => {
+        should.ifError(err);
+      });
+  });
+
+  it('Create same queue in broker a and b.', function() {
+    let randomID = crypto.randomBytes(6).toString('hex');
+    let queueAs = _.map(_.range(0, 10), () => {
+      return this.brokerA.get(randomID, {
+        mode: 'pub',
+        autoCreate: true
+      });
+    });
+    let queueBs = _.map(_.range(0, 10), () => {
+      return this.brokerB.get(randomID, {
+        mode: 'pub',
+        autoCreate: true
+      });
+    });
+    return Promise.all(_.concat(queueAs, queueBs)).catch(err => {
+      should.ifError(err);
     });
   });
 
-  it('Broker A publish, Broker B subscribe.', function(done) {
-    let context = this;
-    co(function*() {
-      let queuePub = yield context.brokerA.get(context.queueID, {
-        mode: 'pub',
-        autoCreate: true
-      });
-      let queueSub = yield context.brokerB.get(context.queueID, {
-        mode: 'sub',
-        autoCreate: true
-      });
-      let workerForPub = new Promise((fulfil, reject) => {
-        co(function*() {
-          for (let msg of context.messages) {
-            if (!msg) {
-              continue;
-            }
-            yield queuePub.push(msg);
-          }
-          fulfil();
-        }).catch(err => {
-          reject(err);
-        });
-      });
-      let workerForSub = new Promise((fulfil, reject) => {
-        co(function*() {
-          let count = 0;
-          let sum = 0;
-          while (true) {
-            let msg = yield queueSub.peek();
-            yield queueSub.commit();
-
-            count++;
-            sum += msg.payload.index;
-            if (count == 100) {
-              (sum).should.equal(5050);
-              return done();
-            }
-          }
-        }).catch(err => {
-          reject(err);
-        });
-      });
-      // Pub/Sub in concurrent.
-      yield [workerForPub, workerForSub];
-    }).catch(err => {
-      done(err);
-    });;
-  })
-
-  it('Broker A concurrent publish, Broker B subscribe.', function(done) {
-    let context = this;
-    co(function*() {
-      let queuePub = yield context.brokerA.get(context.queueID, {
-        mode: 'pub',
-        autoCreate: true
-      });
-      let queueSub = yield context.brokerB.get(context.queueID, {
-        mode: 'sub',
-        autoCreate: false
-      });
-      let workersForAll = _.map(context.messages, msg => {
-        queuePub.push(msg);
-      });
-      workersForAll.push(new Promise((fulfil, reject) => {
-        co(function*() {
-          let count = 0;
-          let sum = 0;
-          while (true) {
-            let msg = yield queueSub.peek();
-            yield queueSub.commit();
-
-            count++;
-            sum += msg.payload.index;
-            if (count == 100) {
-              (sum).should.equal(5050);
-              return done();
-            }
-          }
-        }).catch(err => {
-          reject(err);
-        });
+  it('Broker A publish, Broker B subscribe.', function() {
+    let pub = this.brokerA.get(this.queueID, {
+      mode: 'pub',
+      autoCreate: true
+    }).then(queue => {
+      return Promise.all(_.map(this.messages, msg => {
+        return queue.push(msg);
       }));
-      // Pub/Sub in concurrent.
-      yield workersForAll;
-    }).catch(err => {
-      done(err);
+    });
+    let sub = this.brokerB.get(this.queueID, {
+      mode: 'sub',
+      autoCreate: true
+    }).then(queue => {
+      return _.reduce(_.range(0, this.messages.length - 1), (m, n) => {
+        return m.then(val => {
+          return Promise.all([queue.commit(), val[1] + val[0].payload.index]);
+        }).then(val => {
+          return Promise.all([queue.peek(), val[1]]);
+        });
+      }, Promise.all([queue.peek(), 0]));
+    }).then(result => {
+      should.equal(result[0].payload.index + result[1], 5050);
+    });
+    return Promise.all([pub, sub]).catch(err => {
+      should.ifError(err);
     });
   });
 
-  it('Broker A concurrent publish, Broker B open two subscriber channel.', function(done) {
-    let context = this;
-    co(function*() {
-      let queuePub = yield context.brokerA.get(context.queueID, {
-        mode: 'pub',
-        autoCreate: true
-      });
-      let queueSub1 = yield context.brokerB.get(context.queueID, {
-        mode: 'sub',
-        autoCreate: false,
-        channel: 0
-      });
-      let queueSub2 = yield context.brokerB.get(context.queueID, {
-        mode: 'sub',
-        autoCreate: false,
-        channel: 1
-      });
-      let workersForAll = _.map(context.messages, msg => {
-        queuePub.push(msg);
-      });
-      workersForAll.push(new Promise((fulfil, reject) => {
-        co(function*() {
-          let count = 0;
-          let sum = 0;
-          let createWorkerPromise = function(queue) {
-            let msg;
-            return queue.peek().then(val => {
-              msg = val;
-              return queue.commit();
-            }).then(() => {
-              return Promise.resolve(msg);
-            });
-          };
-          let workerSub1 = createWorkerPromise(queueSub1);
-          let workerSub2 = createWorkerPromise(queueSub2);
-          while (true) {
-            let [msg1, msg2] = yield Promise.all([
-              workerSub1.then(val => {
-                workerSub1 = createWorkerPromise(queueSub1);
-                return val;
-              }),
-              workerSub2.then(val => {
-                workerSub2 = createWorkerPromise(queueSub2);
-                return val;
-              })
-            ]);
-            for (let msg of[msg1, msg2]) {
-              count++;
-              sum += msg.payload.index;
-              if (count == 100 * 2) {
-                (sum).should.equal(5050 * 2);
-                return done();
-              }
-            }
-          }
-        }).catch(err => {
-          reject(err);
-        });
+  it('Broker A publish, Broker B subscribe on two channels.', function() {
+    let pub = this.brokerA.get(this.queueID, {
+      mode: 'pub',
+      autoCreate: true
+    }).then(queue => {
+      return Promise.all(_.map(this.messages, msg => {
+        return queue.push(msg);
       }));
-      // Pub/Sub in concurrent.
-      yield workersForAll;
-    }).catch(err => {
-      done(err);
-    });;
+    });
+    let subs = _.map(_.range(0, 2), channel => {
+      return this.brokerB.get(this.queueID, {
+        mode: 'sub',
+        autoCreate: true,
+        channel: channel
+      }).then(queue => {
+        return _.reduce(_.range(0, this.messages.length - 1), (m, n) => {
+          return m.then(val => {
+            return Promise.all([queue.commit(), val[1] + val[0].payload.index]);
+          }).then(val => {
+            return Promise.all([queue.peek(), val[1]]);
+          });
+        }, Promise.all([queue.peek(), 0]));
+      }).then(result => {
+        should.equal(result[0].payload.index + result[1], 5050);
+      });
+    });
+    return Promise.all(_.concat(subs, pub)).catch(err => {
+      should.ifError(err);
+    });
   });
 });
