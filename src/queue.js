@@ -229,6 +229,34 @@ class Queue extends EventEmitter {
   }
 
   /**
+   * Get messages from storage.
+   * Supported conditions:
+   * `since`  Only return logs after a specific date.
+   * `limit`  Lines of recent message to query.(default 20);
+   * @public
+   */
+  async query(conditions) {
+    if (this.status !== Queue.status.ready && this.status !== Queue.status.peeking) {
+      throw new Error(`Query on error status ${this.status}`);
+    }
+    let now = new Date();
+    let q = { 'created': { '$gte': new Date(now.setMinutes(-5)) } };
+    let c = 10;
+    if (!_.isUndefined(conditions) && _.isDate(conditions.since)) {
+      try {
+        q = { 'created': { '$gte': conditions.since } };
+      } catch (err) {
+        // ignore since.
+      }
+    }
+    if (!_.isUndefined(conditions) && _.has(conditions, 'limit')) {
+      c = _.toInteger(conditions.limit);
+      c = c <= 0 ? 10 : c;
+    }
+    return (await this.store.find(q).limit(c)).toArray();
+  }
+
+  /**
    * Push a json object to queue.
    * the json object store in `payload` property of message.
    * {
@@ -251,7 +279,8 @@ class Queue extends EventEmitter {
     await this.store.insertOne({
       payload: obj,
       acked: 0,
-      lastDate: new Date()
+      created: new Date(),
+      modified: new Date()
     }).catch(err => {
       throw new Error(`Push to queue err ${err}`);
     });
@@ -313,7 +342,7 @@ class Queue extends EventEmitter {
       acked: { $bitsAnyClear: [this.channel] }
     }, {
       $set: {
-        lastDate: new Date()
+        modified: new Date()
       },
       $bit: {
         acked: { or: 1 << this.channel }

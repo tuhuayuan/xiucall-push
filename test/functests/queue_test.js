@@ -412,3 +412,83 @@ describe('Two brokers tests.', function() {
     });
   });
 });
+
+describe('Queue query tests.', function() {
+  before(function() {
+    let queueID = crypto.randomBytes(6).toString('hex');
+    this.broker = new Broker();
+    this.beginning = new Date();
+    return this.broker.connect()
+      .then(() => {
+        return this.broker.get(queueID, {
+          mode: 'pub',
+          autoCreate: true
+        });
+      }).then(queue => {
+        this.queue = queue;
+        return _.reduce(_.range(0, 10), (m, n) => {
+          return m.then(() => {
+            this.queue.push({
+              index: n
+            });
+          }).then(() => {
+            return new Promise((fulfill, reject) => {
+              setTimeout(() => {
+                fulfill();
+              }, 100);
+            });;
+          });
+        }, Promise.resolve());
+      }).then(() => {
+        this.middle = new Date();
+        return _.reduce(_.range(10, 20), (m, n) => {
+          return m.then(() => {
+            this.queue.push({
+              index: n
+            });
+          });
+        }, Promise.resolve());
+      }).catch(err => {
+        should.ifError(err);
+      });
+  });
+
+  after(function() {
+    return this.broker.close().catch(err => {
+      should.ifError(err);
+    });
+  });
+
+  it('Query default.', function() {
+    return this.queue.query()
+      .then(results => {
+        results.should.have.size(10);
+      }).catch(err => {
+        should.ifError(err);
+      });
+  });
+
+  it('Query from the begining.', function() {
+    return this.queue.query({
+      since: this.beginning,
+      limit: 5
+    }).then(results => {
+      results.should.have.size(5);
+      should.equal(results[4].payload.index, 4);
+    }).catch(err => {
+      should.ifError(err);
+    });
+  });
+
+  it('Query from the middle.', function() {
+    return this.queue.query({
+      since: this.middle,
+      limit: 5
+    }).then(results => {
+      results.should.have.size(5);
+      should.equal(results[0].payload.index, 10);
+    }).catch(err => {
+      should.ifError(err);
+    })
+  });
+});

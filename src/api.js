@@ -34,10 +34,12 @@ class Server extends EventEmitter {
       .use(this.router.allowedMethods());
     // handlers
     this.router.post('/push', this._apiPush);
-    this.router.get('/queue');
+    this.router
+      .get('/queue/:id', this._apiGetQueue)
+      .post('/queue/:id', this._apiFollowQueue);
     this.router.get('/healthy', this._apiHealthy);
     this.router.get('/apis', this._apiVersion);
-    // Initialize status.
+
     this._setStatus(Server.status.wait);
   }
 
@@ -113,6 +115,20 @@ class Server extends EventEmitter {
   async _apiVersion() {
     this.status = 200;
     this.body = Server.apis;
+  }
+
+  /**
+   * @private
+   */
+  async _apiGetQueue() {
+    this.status = 200;
+  }
+
+  /**
+   * @private
+   */
+  async _apiFollowQueue() {
+    this.status = 200;
   }
 
   /**
