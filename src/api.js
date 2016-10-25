@@ -1,6 +1,8 @@
 import Koa from 'koa';
 import BodyParser from 'koa-bodyparser';
 import Router from 'koa-router';
+import Validate from 'koa-validate';
+import logger from 'koa-logger';
 import crypto from 'crypto';
 import EventEmitter from 'events';
 import _ from 'lodash';
@@ -17,54 +19,44 @@ class Server extends EventEmitter {
    */
   constructor(opts) {
     super();
+    this.healthyID = crypto.randomBytes(6).toString('hex');
     this.options = {};
     _.assign(this.options, config.api, opts);
+    // build koa app.
     this.app = new Koa();
     this.broker = new Broker();
-    this.router = new Router();
-    this.bodyParser = new BodyParser();
-    this.healthyID = crypto.randomBytes(6).toString('hex');
-
-    // middlewares
+    this.router = new Router(); // for api router.
+    this.bodyParser = new BodyParser(); // for json body parse.
+    Validate(this.app); // for params validate.
+    // build api routers.
+    this.router
+      .post('/push', this._apiPush)
+      .get('/queues/:id', this._apiGetQueue)
+      .get('/watch/:id', this._apiWatchQueue)
+      .get('/healthy', this._apiHealthy)
+      .get('/apis', this._apiVersion);
+    // build koa middlewares
     this.app
-      .use(this._logger)
-      .use(_.bind(this._broker, this))
+      .use(logger())
+      .use(_.bind(this._init, this))
       .use(this.bodyParser)
       .use(this.router.routes())
       .use(this.router.allowedMethods());
-    // handlers
-    this.router.post('/push', this._apiPush);
-    this.router
-      .get('/queue/:id', this._apiGetQueue)
-      .post('/queue/:id', this._apiFollowQueue);
-    this.router.get('/healthy', this._apiHealthy);
-    this.router.get('/apis', this._apiVersion);
-
     this._setStatus(Server.status.wait);
   }
 
   /**
-   * logger middleware
+   * add objects to koa context.
    * @private
    */
-  async _logger(ctx, next) {
-    debug(`-> ${ctx.method} | ${ctx.ip} | ${ctx.origin} | ${ctx.path} | ${ctx.request.type || ''}`);
-    await next();
-    debug(`<- ${ctx.status} | ${ctx.length || ''} | ${ctx.type || ''}`);
-  }
-
-  /**
-   * setup broker
-   */
-  async _broker(ctx, next) {
+  async _init(ctx, next) {
     ctx.broker = this.broker;
     ctx.healthyID = this.healthyID;
     await next();
   }
 
   /**
-   * handler for /push
-   * 
+   * /push?autoCreate=
    * @private
    */
   async _apiPush() {
@@ -72,17 +64,26 @@ class Server extends EventEmitter {
       this.throw('Content-Type: application/json charset: utf-8.', 400);
     }
     let jsonBody = this.request.body;
+    this.errors = [];
     // Check validity.
     if (!jsonBody)
-      this.throw(400, 'Body required.');
+      this.errors.push('Body required.');
     if (!jsonBody.send_id)
-      this.throw(400, 'Property send_id required.');
+      this.errors.push('Property send_id required.');
     if (!jsonBody.channel)
-      this.throw(400, 'Property channel required.');
+      this.errors.push('Property channel required.');
     if (!jsonBody.recv_id || jsonBody.recv_id.length == 0)
-      this.throw(400, 'Property recv_id required.');
+      this.errors.push('Property recv_id required.');
     if (!jsonBody.data)
-      this.throw(400, 'Property data required.');
+      this.errors.push('Property data required.');
+    if (this.errors.length > 0) {
+      this.status = 400;
+      this.body = {
+        ok: 0,
+        errors: this.errors
+      }
+      return;
+    }
     // Fill in queue message.
     let queueMessage = {
       channel: jsonBody.channel,
@@ -93,18 +94,26 @@ class Server extends EventEmitter {
     let allPushs = _.map(jsonBody.recv_id, receiver => {
       return this.broker.get(receiver, {
         mode: 'pub',
-        autoCreate: this.request.query.autoCreate ? this.request.query.autoCreate : false
+        autoCreate: !!this.request.query.autoCreate
       }).then(queue => {
         return queue.push(queueMessage);
+      }).then(() => {
+        return true;
+      }).catch(err => {
+        return false;
       });
     });
-    await Promise.all(allPushs).catch(err => {
-      if (this.request.query.strictMode) {
-        this.throw(406, `Push not finished. err: ${err}`);
+    let send = _.reduce(await Promise.all(allPushs), (m, n) => {
+      if (n) {
+        m += 1;
       }
-    });
+      return m;
+    }, 0);
     this.status = 200;
-    this.body = { ok: 1 };
+    this.body = {
+      ok: 1,
+      send: send
+    };
   }
 
   /**
@@ -118,16 +127,79 @@ class Server extends EventEmitter {
   }
 
   /**
+   * /queues/:id?since=1477312333&&limit=100
    * @private
    */
   async _apiGetQueue() {
+    this.checkQuery('since').optional().isInt().gt(0);
+    this.checkQuery('limit').optional().isInt().gt(0);
+    if (this.errors) {
+      this.status = 400;
+      this.body = {
+        ok: 0,
+        errors: this.errors
+      };
+      return;
+    }
+    let opt = {};
+    if (this.query.since) {
+      this.query.since = new Date(this.query.since * 1000);
+    }
+    _.assign(opt, this.query);
+    try {
+      let broker = new Broker();
+      await broker.connect();
+      let queue = await broker.get(this.params.id, {
+        mode: 'pub',
+        autoCreate: false
+      });
+      let results = await queue.query(opt);
+      this.body = {
+        ok: 1,
+        messages: results
+      };
+    } catch (err) {
+      this.body = {
+        ok: 0,
+        errors: [err]
+      }
+    }
     this.status = 200;
   }
 
   /**
+   * /watch/:id?channel=<number>
    * @private
    */
-  async _apiFollowQueue() {
+  async _apiWatchQueue() {
+    this.checkQuery('channel').optional().isInt().gt(0).lt(16).default(10);
+    if (this.errors) {
+      this.status = 400;
+      this.body = {
+        ok: 0,
+        errors: this.errors
+      };
+      return;
+    }
+    try {
+      let broker = new Broker();
+      await broker.connect();
+      let queue = await broker.get(this.params.id, {
+        mode: 'sub',
+        autoCreate: true,
+        channel: this.query.channel
+      });
+      let res = await queue.peek();
+      this.body = {
+        ok: 1,
+        message: res
+      };
+    } catch (err) {
+      this.body = {
+        ok: 0,
+        errors: [err]
+      }
+    }
     this.status = 200;
   }
 
@@ -215,8 +287,8 @@ Server.apis = {
     '/push',
     '/healthy',
     '/apis',
-    '/queue',
-    '/clients'
+    '/queues',
+    '/watch'
   ]
 };
 
