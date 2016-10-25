@@ -16,16 +16,17 @@ class Connector extends EventEmitter {
     super();
     this.options = {};
     _.assign(this.options, config.connector, opts);
-
+    // Queue broker.
     this.broker = new Broker();
     this.server = http.createServer();
     this.socketio = new SocketIO(this.server, {
       transports: ['websocket']
     });
-
+    // SocketIO middlewares.
     this.socketio.use(_.bind(this._authHandler, this));
     this.socketio.use(_.bind(this._initHandler, this));
     this.socketio.on('connection', _.bind(this._connectHandler, this));
+    this._setStatus(Connector.status.connecting);
   }
 
   /**
@@ -71,18 +72,34 @@ class Connector extends EventEmitter {
     let nbbAuthid = headers['x-nbb-authid'];
     let nbbSign = headers['x-nbb-sign'];
     let hash = crypto.createHash("md5");
-    socket.authenticated = false;
-    if (nbbAuthid && nbbSign) {
-      let result = nbbSign.split(",");
-      if (result.length > 1) {
-        hash.update(result[1] + config.connector.authKey + nbbAuthid);
-        if (result[0] === hash.digest('hex')) {
-          socket.authenticator = nbbAuthid;
-          return next();
-        }
+
+    try {
+      if (_.isUndefined(nbbAuthid) || _.isUndefined(nbbSign)) {
+        throw 'headers not legal.';
       }
+      let results = nbbSign.split(',');
+      if (results.length < 2) {
+        throw 'signature not legal.';
+      }
+      //Check auth timestamp.
+      let now = new Date();
+      let authDate = new Date(_.toInteger(results[1]) * 1000);
+      let delta = new Date(Math.abs(now - authDate));
+      if (delta.getHours() > 0 || delta.getMinutes() > 15) {
+        throw `timestamp too old now:${now.toUTCString()} auth:${authDate.toUTCString()}`;
+      }
+      //Check auth secret.
+      hash.update(results[1] + config.connector.authKey + nbbAuthid);
+      if (results[0] !== hash.digest('hex')) {
+        throw 'secret not legal.'
+      }
+      socket.authID = nbbAuthid;
+      return next();
+    } catch (e) {
+      // Any error during the auth process will cause socket disconnection.
+      debug(`Auth handler error: ${e}`);
+      socket.disconnect();
     }
-    socket.disconnect();
   }
 
   /**
@@ -90,18 +107,22 @@ class Connector extends EventEmitter {
    * @private
    */
   _initHandler(socket, next) {
-    this.broker.get(socket.authenticator, {
+    // Get queue object.
+    this.broker.get(socket.authID, {
       autoCreate: true,
       mode: 'sub'
     }).then(val => {
       socket.queue = val;
       socket.on('disconnect', this._disconnectHandler);
-      return this.session.join(socket.authenticator, socket);
+      // Create session.
+      return this.session.join(socket.authID, socket);
     }).then(val => {
       socket.sessionID = val;
       socket.sessionManager = this.session;
+      // Done.
       return next();
     }).catch(err => {
+      // Any error will cause socket disconnection. 
       socket.disconnect();
     });
   }
@@ -168,9 +189,8 @@ class Connector extends EventEmitter {
  * Connector status.
  */
 Connector.status = {
-  wait: 'wait',
-  starting: 'connecting',
-  listening: 'listening',
+  connecting: 'connecting',
+  ready: 'ready',
   stopped: 'stopped'
 }
 

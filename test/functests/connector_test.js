@@ -13,7 +13,7 @@ function getAuthedOpt(number) {
     reconnection: false,
     transports: ['websocket'],
   };
-  let timestamp = new Date().getTime();
+  let timestamp = Math.floor(new Date().getTime() / 1000);
   let hasher = crypto.createHash("md5");
   hasher.update(timestamp + config.connector.authKey + number);
   opts.extraHeaders['x-nbb-authid'] = number;

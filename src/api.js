@@ -1,3 +1,4 @@
+import _ from 'lodash';
 import Koa from 'koa';
 import BodyParser from 'koa-bodyparser';
 import Router from 'koa-router';
@@ -5,7 +6,6 @@ import Validate from 'koa-validate';
 import logger from 'koa-logger';
 import crypto from 'crypto';
 import EventEmitter from 'events';
-import _ from 'lodash';
 import { config, debug, error, info } from './utils.js';
 import Broker from './queue.js';
 
@@ -36,8 +36,10 @@ class Server extends EventEmitter {
       .get('/healthy', this._apiHealthy)
       .get('/apis', this._apiVersion);
     // build koa middlewares
+    if (config.logger.level === 'debug') {
+      this.app.use(logger());
+    }
     this.app
-      .use(logger())
       .use(_.bind(this._init, this))
       .use(this.bodyParser)
       .use(this.router.routes())
