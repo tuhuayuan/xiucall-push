@@ -428,7 +428,7 @@ describe('Queue query tests.', function() {
         this.queue = queue;
         return _.reduce(_.range(0, 10), (m, n) => {
           return m.then(() => {
-            this.queue.push({
+            return this.queue.push({
               index: n
             });
           }).then(() => {
@@ -443,7 +443,7 @@ describe('Queue query tests.', function() {
         this.middle = new Date();
         return _.reduce(_.range(10, 20), (m, n) => {
           return m.then(() => {
-            this.queue.push({
+            return this.queue.push({
               index: n
             });
           });

@@ -280,10 +280,7 @@ class Queue extends EventEmitter {
     }).catch(err => {
       throw new Error(`Push to queue err ${err}`);
     });
-    await this.pub.publish(this.messageChannel, {})
-      .catch(err => {
-        throw new Error(`Notify peeker error ${err}`);
-      });
+    await this.pub.publish(this.messageChannel, {});
   }
 
   /**
