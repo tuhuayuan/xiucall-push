@@ -50,6 +50,7 @@ test-func:
 
 clean:
 	@rm -rf $(LIB)
+	@rm -rf ./coverage
 
 run: build
 	@node lib/index.js --mode $(MODE)

@@ -38,6 +38,7 @@ class Connector extends EventEmitter {
     this.session = await SessionManager.create(this.options);
     this.session.on('kicked', _.bind(this._kickedHandler, this));
     this.server.listen(this.options.port, this.options.host);
+    this._setStatus(Connector.status.ready);
   }
 
   /**
@@ -45,6 +46,7 @@ class Connector extends EventEmitter {
    * @public
    */
   async shutdown() {
+    this._setStatus(Connector.status.stopped);
     this.server.close();
     await this.session.close();
     await this.broker.close();
@@ -68,6 +70,10 @@ class Connector extends EventEmitter {
    * @next function for next middleware.
    */
   _authHandler(socket, next) {
+    if (this.status !== Connector.status.ready) {
+      socket.disconnect();
+      return;
+    }
     let headers = socket.request.headers;
     let nbbAuthid = headers['x-nbb-authid'];
     let nbbSign = headers['x-nbb-sign'];
@@ -97,7 +103,7 @@ class Connector extends EventEmitter {
       return next();
     } catch (e) {
       // Any error during the auth process will cause socket disconnection.
-      debug(`Auth handler error: ${e}`);
+      error(`Auth handler error: ${e}`);
       socket.disconnect();
     }
   }
@@ -153,7 +159,7 @@ class Connector extends EventEmitter {
     }).then(msg => {
       socket.emit('message', [msg.payload]);
     }).catch(err => {
-      debug(`${socket.sessionID} peek error ${err}`);
+      error(`${socket.sessionID} peek error ${err}`);
     });
   }
 
@@ -165,12 +171,12 @@ class Connector extends EventEmitter {
   _disconnectHandler() {
     if (this.queue) {
       this.queue.close().catch(err => {
-        info(`Queue close error: ${err}`);
+        error(`Queue close error: ${err}`);
       });
     }
     if (this.sessionManager) {
       this.sessionManager.remove(this.sessionID).catch(err => {
-        info(`Session manager remove error: ${err}`);
+        error(`Session manager remove error: ${err}`);
       });
     }
   }
